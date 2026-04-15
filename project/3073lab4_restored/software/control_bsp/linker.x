@@ -4,7 +4,7 @@
  * Machine generated for CPU 'control_proc' in SOPC Builder design 'NIOSII_WEEK3'
  * SOPC Builder design path: ../../NIOSII_WEEK3.sopcinfo
  *
- * Generated: Wed Apr 15 12:23:53 SGT 2026
+ * Generated: Wed Apr 15 16:24:24 SGT 2026
  */
 
 /*
@@ -50,7 +50,7 @@
 
 MEMORY
 {
-    new_sdram_controller_0 : ORIGIN = 0x0, LENGTH = 67108864
+    new_sdram_controller_0 : ORIGIN = 0x2000000, LENGTH = 33554432
     reset : ORIGIN = 0x4008000, LENGTH = 32
     control_mem : ORIGIN = 0x4008020, LENGTH = 32736
 }
@@ -93,7 +93,7 @@ SECTIONS
      *
      */
 
-    .exceptions : AT ( 0x0 )
+    .exceptions : AT ( 0x2000000 )
     {
         PROVIDE (__ram_exceptions_start = ABSOLUTE(.));
         . = ALIGN(0x20);

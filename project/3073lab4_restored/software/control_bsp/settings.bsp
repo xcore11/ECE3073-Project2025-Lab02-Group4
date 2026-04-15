@@ -2,8 +2,8 @@
 <sch:Settings xmlns:sch="http://www.altera.com/embeddedsw/bsp/schema">
         <BspType>hal</BspType>
         <BspVersion>default</BspVersion>
-        <BspGeneratedTimeStamp>Apr 15, 2026 3:47:45 PM</BspGeneratedTimeStamp>
-        <BspGeneratedUnixTimeStamp>1776239265270</BspGeneratedUnixTimeStamp>
+        <BspGeneratedTimeStamp>Apr 15, 2026 4:24:38 PM</BspGeneratedTimeStamp>
+        <BspGeneratedUnixTimeStamp>1776241478668</BspGeneratedUnixTimeStamp>
         <BspGeneratedLocation>C:\temp\ECE3073-Project2025-Lab02-Group4\project\3073lab4_restored\software\control_bsp</BspGeneratedLocation>
         <BspSettingsFile>settings.bsp</BspSettingsFile>
         <SopcDesignFile>..\..\NIOSII_WEEK3.sopcinfo</SopcDesignFile>
@@ -898,6 +898,30 @@
                 <Enabled>false</Enabled>
                 <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
         </Setting>
+        <LinkerRegion>
+                <regionName>new_sdram_controller_0</regionName>
+                <memoryName>new_sdram_controller_0</memoryName>
+                <offset>33554432</offset>
+                <size>33554432</size>
+                <baseAddress>0x2000000</baseAddress>
+                <addressRange>0x02000000 - 0x03FFFFFF</addressRange>
+        </LinkerRegion>
+        <LinkerRegion>
+                <regionName>reset</regionName>
+                <memoryName>control_mem</memoryName>
+                <offset>0</offset>
+                <size>32</size>
+                <baseAddress>0x4008000</baseAddress>
+                <addressRange>0x04008000 - 0x0400801F</addressRange>
+        </LinkerRegion>
+        <LinkerRegion>
+                <regionName>control_mem</regionName>
+                <memoryName>control_mem</memoryName>
+                <offset>32</offset>
+                <size>32736</size>
+                <baseAddress>0x4008020</baseAddress>
+                <addressRange>0x04008020 - 0x0400FFFF</addressRange>
+        </LinkerRegion>
         <MemoryMap>
                 <slaveDescriptor>new_sdram_controller_0</slaveDescriptor>
                 <addressRange>0x00000000 - 0x03FFFFFF</addressRange>

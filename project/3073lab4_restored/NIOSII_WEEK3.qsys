@@ -21,7 +21,7 @@
    {
       datum baseAddress
       {
-         value = "67179024";
+         value = "134287856";
          type = "String";
       }
    }
@@ -50,7 +50,7 @@
       }
       datum baseAddress
       {
-         value = "67141632";
+         value = "134250496";
          type = "String";
       }
    }
@@ -71,7 +71,7 @@
       }
       datum baseAddress
       {
-         value = "67176448";
+         value = "134285312";
          type = "String";
       }
    }
@@ -87,7 +87,7 @@
    {
       datum baseAddress
       {
-         value = "67179016";
+         value = "134287848";
          type = "String";
       }
    }
@@ -111,7 +111,7 @@
    {
       datum baseAddress
       {
-         value = "67125248";
+         value = "16384";
          type = "String";
       }
    }
@@ -127,7 +127,7 @@
    {
       datum baseAddress
       {
-         value = "67143680";
+         value = "34816";
          type = "String";
       }
    }
@@ -143,12 +143,12 @@
    {
       datum _lockedAddress
       {
-         value = "1";
+         value = "0";
          type = "boolean";
       }
       datum baseAddress
       {
-         value = "0";
+         value = "67108864";
          type = "String";
       }
    }
@@ -164,7 +164,7 @@
    {
       datum baseAddress
       {
-         value = "67145808";
+         value = "36944";
          type = "String";
       }
    }
@@ -180,7 +180,7 @@
    {
       datum baseAddress
       {
-         value = "67145824";
+         value = "36960";
          type = "String";
       }
    }
@@ -196,7 +196,7 @@
    {
       datum baseAddress
       {
-         value = "67178944";
+         value = "134287776";
          type = "String";
       }
    }
@@ -212,7 +212,7 @@
    {
       datum baseAddress
       {
-         value = "67178928";
+         value = "134287760";
          type = "String";
       }
    }
@@ -228,7 +228,7 @@
    {
       datum baseAddress
       {
-         value = "67178912";
+         value = "134287744";
          type = "String";
       }
    }
@@ -244,7 +244,7 @@
    {
       datum baseAddress
       {
-         value = "67178896";
+         value = "134287728";
          type = "String";
       }
    }
@@ -260,7 +260,7 @@
    {
       datum baseAddress
       {
-         value = "67178880";
+         value = "134287712";
          type = "String";
       }
    }
@@ -276,7 +276,7 @@
    {
       datum baseAddress
       {
-         value = "67178864";
+         value = "134287696";
          type = "String";
       }
    }
@@ -292,7 +292,7 @@
    {
       datum baseAddress
       {
-         value = "67178848";
+         value = "134287680";
          type = "String";
       }
    }
@@ -313,7 +313,7 @@
       }
       datum baseAddress
       {
-         value = "67178992";
+         value = "134287824";
          type = "String";
       }
    }
@@ -329,7 +329,7 @@
    {
       datum baseAddress
       {
-         value = "67178816";
+         value = "134287648";
          type = "String";
       }
    }
@@ -345,7 +345,7 @@
    {
       datum baseAddress
       {
-         value = "67178960";
+         value = "134287792";
          type = "String";
       }
    }
@@ -361,7 +361,7 @@
    {
       datum baseAddress
       {
-         value = "67145840";
+         value = "36976";
          type = "String";
       }
    }
@@ -377,7 +377,7 @@
    {
       datum baseAddress
       {
-         value = "67178800";
+         value = "134287632";
          type = "String";
       }
    }
@@ -393,7 +393,7 @@
    {
       datum baseAddress
       {
-         value = "67178832";
+         value = "134287664";
          type = "String";
       }
    }
@@ -409,7 +409,7 @@
    {
       datum baseAddress
       {
-         value = "67178976";
+         value = "134287808";
          type = "String";
       }
    }
@@ -425,7 +425,7 @@
    {
       datum baseAddress
       {
-         value = "67145792";
+         value = "36928";
          type = "String";
       }
    }
@@ -441,7 +441,7 @@
    {
       datum baseAddress
       {
-         value = "67178528";
+         value = "134287392";
          type = "String";
       }
    }
@@ -457,7 +457,7 @@
    {
       datum baseAddress
       {
-         value = "67125248";
+         value = "16384";
          type = "String";
       }
    }
@@ -473,7 +473,7 @@
    {
       datum baseAddress
       {
-         value = "67143680";
+         value = "34816";
          type = "String";
       }
    }
@@ -662,10 +662,10 @@
   <parameter name="customInstSlavesSystemInfo_nios_a" value="&lt;info/&gt;" />
   <parameter name="customInstSlavesSystemInfo_nios_b" value="&lt;info/&gt;" />
   <parameter name="customInstSlavesSystemInfo_nios_c" value="&lt;info/&gt;" />
-  <parameter name="dataAddrWidth" value="27" />
+  <parameter name="dataAddrWidth" value="28" />
   <parameter name="dataMasterHighPerformanceAddrWidth" value="1" />
   <parameter name="dataMasterHighPerformanceMapParam" value="" />
-  <parameter name="dataSlaveMapParam"><![CDATA[<address-map><slave name='new_sdram_controller_0.s1' start='0x0' end='0x4000000' type='altera_avalon_new_sdram_controller.s1' /><slave name='control_mem.s1' start='0x4008000' end='0x4010000' type='altera_avalon_onchip_memory2.s1' /><slave name='control_proc.debug_mem_slave' start='0x4010800' end='0x4011000' type='altera_nios2_gen2.debug_mem_slave' /><slave name='spi_0.spi_control_port' start='0x4011020' end='0x4011040' type='altera_avalon_spi.spi_control_port' /><slave name='pio_speaker.s1' start='0x4011130' end='0x4011140' type='altera_avalon_pio.s1' /><slave name='pio_led_module.s1' start='0x4011140' end='0x4011150' type='altera_avalon_pio.s1' /><slave name='pio_spi_select.s1' start='0x4011150' end='0x4011160' type='altera_avalon_pio.s1' /><slave name='pio_hex5.s1' start='0x4011160' end='0x4011170' type='altera_avalon_pio.s1' /><slave name='pio_hex4.s1' start='0x4011170' end='0x4011180' type='altera_avalon_pio.s1' /><slave name='pio_hex3.s1' start='0x4011180' end='0x4011190' type='altera_avalon_pio.s1' /><slave name='pio_hex2.s1' start='0x4011190' end='0x40111A0' type='altera_avalon_pio.s1' /><slave name='pio_hex1.s1' start='0x40111A0' end='0x40111B0' type='altera_avalon_pio.s1' /><slave name='pio_hex0.s1' start='0x40111B0' end='0x40111C0' type='altera_avalon_pio.s1' /><slave name='pio_gpio.s1' start='0x40111C0' end='0x40111D0' type='altera_avalon_pio.s1' /><slave name='pio_pb.s1' start='0x40111D0' end='0x40111E0' type='altera_avalon_pio.s1' /><slave name='pio_sw.s1' start='0x40111E0' end='0x40111F0' type='altera_avalon_pio.s1' /><slave name='pio_led.s1' start='0x40111F0' end='0x4011200' type='altera_avalon_pio.s1' /><slave name='jtag_uart_0.avalon_jtag_slave' start='0x4011208' end='0x4011210' type='altera_avalon_jtag_uart.avalon_jtag_slave' /><slave name='accelerometer_spi_0.avalon_accelerometer_spi_mode_slave' start='0x4011210' end='0x4011212' type='altera_up_avalon_accelerometer_spi.avalon_accelerometer_spi_mode_slave' /></address-map>]]></parameter>
+  <parameter name="dataSlaveMapParam"><![CDATA[<address-map><slave name='new_sdram_controller_0.s1' start='0x4000000' end='0x8000000' type='altera_avalon_new_sdram_controller.s1' /><slave name='control_mem.s1' start='0x8008000' end='0x8010000' type='altera_avalon_onchip_memory2.s1' /><slave name='control_proc.debug_mem_slave' start='0x8010800' end='0x8011000' type='altera_nios2_gen2.debug_mem_slave' /><slave name='spi_0.spi_control_port' start='0x8011020' end='0x8011040' type='altera_avalon_spi.spi_control_port' /><slave name='pio_speaker.s1' start='0x8011110' end='0x8011120' type='altera_avalon_pio.s1' /><slave name='pio_led_module.s1' start='0x8011120' end='0x8011130' type='altera_avalon_pio.s1' /><slave name='pio_spi_select.s1' start='0x8011130' end='0x8011140' type='altera_avalon_pio.s1' /><slave name='pio_hex5.s1' start='0x8011140' end='0x8011150' type='altera_avalon_pio.s1' /><slave name='pio_hex4.s1' start='0x8011150' end='0x8011160' type='altera_avalon_pio.s1' /><slave name='pio_hex3.s1' start='0x8011160' end='0x8011170' type='altera_avalon_pio.s1' /><slave name='pio_hex2.s1' start='0x8011170' end='0x8011180' type='altera_avalon_pio.s1' /><slave name='pio_hex1.s1' start='0x8011180' end='0x8011190' type='altera_avalon_pio.s1' /><slave name='pio_hex0.s1' start='0x8011190' end='0x80111A0' type='altera_avalon_pio.s1' /><slave name='pio_gpio.s1' start='0x80111A0' end='0x80111B0' type='altera_avalon_pio.s1' /><slave name='pio_pb.s1' start='0x80111B0' end='0x80111C0' type='altera_avalon_pio.s1' /><slave name='pio_sw.s1' start='0x80111C0' end='0x80111D0' type='altera_avalon_pio.s1' /><slave name='pio_led.s1' start='0x80111D0' end='0x80111E0' type='altera_avalon_pio.s1' /><slave name='jtag_uart_0.avalon_jtag_slave' start='0x80111E8' end='0x80111F0' type='altera_avalon_jtag_uart.avalon_jtag_slave' /><slave name='accelerometer_spi_0.avalon_accelerometer_spi_mode_slave' start='0x80111F0' end='0x80111F2' type='altera_up_avalon_accelerometer_spi.avalon_accelerometer_spi_mode_slave' /></address-map>]]></parameter>
   <parameter name="data_master_high_performance_paddr_base" value="0" />
   <parameter name="data_master_high_performance_paddr_size" value="0" />
   <parameter name="data_master_paddr_base" value="0" />
@@ -703,8 +703,8 @@
   <parameter name="icache_size" value="4096" />
   <parameter name="icache_tagramBlockType" value="Automatic" />
   <parameter name="impl" value="Fast" />
-  <parameter name="instAddrWidth" value="27" />
-  <parameter name="instSlaveMapParam"><![CDATA[<address-map><slave name='new_sdram_controller_0.s1' start='0x0' end='0x4000000' type='altera_avalon_new_sdram_controller.s1' /><slave name='control_mem.s1' start='0x4008000' end='0x4010000' type='altera_avalon_onchip_memory2.s1' /><slave name='control_proc.debug_mem_slave' start='0x4010800' end='0x4011000' type='altera_nios2_gen2.debug_mem_slave' /><slave name='spi_0.spi_control_port' start='0x4011020' end='0x4011040' type='altera_avalon_spi.spi_control_port' /><slave name='pio_speaker.s1' start='0x4011130' end='0x4011140' type='altera_avalon_pio.s1' /><slave name='pio_led_module.s1' start='0x4011140' end='0x4011150' type='altera_avalon_pio.s1' /><slave name='pio_spi_select.s1' start='0x4011150' end='0x4011160' type='altera_avalon_pio.s1' /><slave name='pio_hex5.s1' start='0x4011160' end='0x4011170' type='altera_avalon_pio.s1' /><slave name='pio_hex4.s1' start='0x4011170' end='0x4011180' type='altera_avalon_pio.s1' /><slave name='pio_hex3.s1' start='0x4011180' end='0x4011190' type='altera_avalon_pio.s1' /><slave name='pio_hex2.s1' start='0x4011190' end='0x40111A0' type='altera_avalon_pio.s1' /><slave name='pio_hex1.s1' start='0x40111A0' end='0x40111B0' type='altera_avalon_pio.s1' /><slave name='pio_hex0.s1' start='0x40111B0' end='0x40111C0' type='altera_avalon_pio.s1' /><slave name='pio_gpio.s1' start='0x40111C0' end='0x40111D0' type='altera_avalon_pio.s1' /><slave name='pio_pb.s1' start='0x40111D0' end='0x40111E0' type='altera_avalon_pio.s1' /><slave name='pio_sw.s1' start='0x40111E0' end='0x40111F0' type='altera_avalon_pio.s1' /><slave name='pio_led.s1' start='0x40111F0' end='0x4011200' type='altera_avalon_pio.s1' /><slave name='jtag_uart_0.avalon_jtag_slave' start='0x4011208' end='0x4011210' type='altera_avalon_jtag_uart.avalon_jtag_slave' /></address-map>]]></parameter>
+  <parameter name="instAddrWidth" value="28" />
+  <parameter name="instSlaveMapParam"><![CDATA[<address-map><slave name='new_sdram_controller_0.s1' start='0x4000000' end='0x8000000' type='altera_avalon_new_sdram_controller.s1' /><slave name='control_mem.s1' start='0x8008000' end='0x8010000' type='altera_avalon_onchip_memory2.s1' /><slave name='control_proc.debug_mem_slave' start='0x8010800' end='0x8011000' type='altera_nios2_gen2.debug_mem_slave' /><slave name='spi_0.spi_control_port' start='0x8011020' end='0x8011040' type='altera_avalon_spi.spi_control_port' /><slave name='pio_speaker.s1' start='0x8011110' end='0x8011120' type='altera_avalon_pio.s1' /><slave name='pio_led_module.s1' start='0x8011120' end='0x8011130' type='altera_avalon_pio.s1' /><slave name='pio_spi_select.s1' start='0x8011130' end='0x8011140' type='altera_avalon_pio.s1' /><slave name='pio_hex5.s1' start='0x8011140' end='0x8011150' type='altera_avalon_pio.s1' /><slave name='pio_hex4.s1' start='0x8011150' end='0x8011160' type='altera_avalon_pio.s1' /><slave name='pio_hex3.s1' start='0x8011160' end='0x8011170' type='altera_avalon_pio.s1' /><slave name='pio_hex2.s1' start='0x8011170' end='0x8011180' type='altera_avalon_pio.s1' /><slave name='pio_hex1.s1' start='0x8011180' end='0x8011190' type='altera_avalon_pio.s1' /><slave name='pio_hex0.s1' start='0x8011190' end='0x80111A0' type='altera_avalon_pio.s1' /><slave name='pio_gpio.s1' start='0x80111A0' end='0x80111B0' type='altera_avalon_pio.s1' /><slave name='pio_pb.s1' start='0x80111B0' end='0x80111C0' type='altera_avalon_pio.s1' /><slave name='pio_sw.s1' start='0x80111C0' end='0x80111D0' type='altera_avalon_pio.s1' /><slave name='pio_led.s1' start='0x80111D0' end='0x80111E0' type='altera_avalon_pio.s1' /><slave name='jtag_uart_0.avalon_jtag_slave' start='0x80111E8' end='0x80111F0' type='altera_avalon_jtag_uart.avalon_jtag_slave' /></address-map>]]></parameter>
   <parameter name="instructionMasterHighPerformanceAddrWidth" value="1" />
   <parameter name="instructionMasterHighPerformanceMapParam" value="" />
   <parameter name="instruction_master_high_performance_paddr_base" value="0" />
@@ -898,7 +898,7 @@
   <parameter name="dataAddrWidth" value="27" />
   <parameter name="dataMasterHighPerformanceAddrWidth" value="1" />
   <parameter name="dataMasterHighPerformanceMapParam" value="" />
-  <parameter name="dataSlaveMapParam"><![CDATA[<address-map><slave name='new_sdram_controller_0.s1' start='0x0' end='0x4000000' type='altera_avalon_new_sdram_controller.s1' /><slave name='multiplier_mem.s1' start='0x4004000' end='0x4008000' type='altera_avalon_onchip_memory2.s1' /><slave name='multiplier_proc.debug_mem_slave' start='0x4008800' end='0x4009000' type='altera_nios2_gen2.debug_mem_slave' /></address-map>]]></parameter>
+  <parameter name="dataSlaveMapParam"><![CDATA[<address-map><slave name='multiplier_mem.s1' start='0x4000' end='0x8000' type='altera_avalon_onchip_memory2.s1' /><slave name='multiplier_proc.debug_mem_slave' start='0x8800' end='0x9000' type='altera_nios2_gen2.debug_mem_slave' /><slave name='new_sdram_controller_0.s1' start='0x4000000' end='0x8000000' type='altera_avalon_new_sdram_controller.s1' /></address-map>]]></parameter>
   <parameter name="data_master_high_performance_paddr_base" value="0" />
   <parameter name="data_master_high_performance_paddr_size" value="0" />
   <parameter name="data_master_paddr_base" value="0" />
@@ -937,7 +937,7 @@
   <parameter name="icache_tagramBlockType" value="Automatic" />
   <parameter name="impl" value="Fast" />
   <parameter name="instAddrWidth" value="27" />
-  <parameter name="instSlaveMapParam"><![CDATA[<address-map><slave name='new_sdram_controller_0.s1' start='0x0' end='0x4000000' type='altera_avalon_new_sdram_controller.s1' /><slave name='multiplier_mem.s1' start='0x4004000' end='0x4008000' type='altera_avalon_onchip_memory2.s1' /><slave name='multiplier_proc.debug_mem_slave' start='0x4008800' end='0x4009000' type='altera_nios2_gen2.debug_mem_slave' /></address-map>]]></parameter>
+  <parameter name="instSlaveMapParam"><![CDATA[<address-map><slave name='multiplier_mem.s1' start='0x4000' end='0x8000' type='altera_avalon_onchip_memory2.s1' /><slave name='multiplier_proc.debug_mem_slave' start='0x8800' end='0x9000' type='altera_nios2_gen2.debug_mem_slave' /><slave name='new_sdram_controller_0.s1' start='0x4000000' end='0x8000000' type='altera_avalon_new_sdram_controller.s1' /></address-map>]]></parameter>
   <parameter name="instructionMasterHighPerformanceAddrWidth" value="1" />
   <parameter name="instructionMasterHighPerformanceMapParam" value="" />
   <parameter name="instruction_master_high_performance_paddr_base" value="0" />
@@ -1415,7 +1415,7 @@
   <parameter name="dataAddrWidth" value="27" />
   <parameter name="dataMasterHighPerformanceAddrWidth" value="1" />
   <parameter name="dataMasterHighPerformanceMapParam" value="" />
-  <parameter name="dataSlaveMapParam"><![CDATA[<address-map><slave name='new_sdram_controller_0.s1' start='0x0' end='0x4000000' type='altera_avalon_new_sdram_controller.s1' /><slave name='vga_mem.s1' start='0x4004000' end='0x4008000' type='altera_avalon_onchip_memory2.s1' /><slave name='vga_proc.debug_mem_slave' start='0x4008800' end='0x4009000' type='altera_nios2_gen2.debug_mem_slave' /><slave name='pio_wren.s1' start='0x4009040' end='0x4009050' type='altera_avalon_pio.s1' /><slave name='pio_ImgAddr.s1' start='0x4009050' end='0x4009060' type='altera_avalon_pio.s1' /><slave name='pio_camready.s1' start='0x4009060' end='0x4009070' type='altera_avalon_pio.s1' /><slave name='pio_pixeldata.s1' start='0x4009070' end='0x4009080' type='altera_avalon_pio.s1' /></address-map>]]></parameter>
+  <parameter name="dataSlaveMapParam"><![CDATA[<address-map><slave name='vga_mem.s1' start='0x4000' end='0x8000' type='altera_avalon_onchip_memory2.s1' /><slave name='vga_proc.debug_mem_slave' start='0x8800' end='0x9000' type='altera_nios2_gen2.debug_mem_slave' /><slave name='pio_wren.s1' start='0x9040' end='0x9050' type='altera_avalon_pio.s1' /><slave name='pio_ImgAddr.s1' start='0x9050' end='0x9060' type='altera_avalon_pio.s1' /><slave name='pio_camready.s1' start='0x9060' end='0x9070' type='altera_avalon_pio.s1' /><slave name='pio_pixeldata.s1' start='0x9070' end='0x9080' type='altera_avalon_pio.s1' /><slave name='new_sdram_controller_0.s1' start='0x4000000' end='0x8000000' type='altera_avalon_new_sdram_controller.s1' /></address-map>]]></parameter>
   <parameter name="data_master_high_performance_paddr_base" value="0" />
   <parameter name="data_master_high_performance_paddr_size" value="0" />
   <parameter name="data_master_paddr_base" value="0" />
@@ -1454,7 +1454,7 @@
   <parameter name="icache_tagramBlockType" value="Automatic" />
   <parameter name="impl" value="Fast" />
   <parameter name="instAddrWidth" value="27" />
-  <parameter name="instSlaveMapParam"><![CDATA[<address-map><slave name='new_sdram_controller_0.s1' start='0x0' end='0x4000000' type='altera_avalon_new_sdram_controller.s1' /><slave name='vga_mem.s1' start='0x4004000' end='0x4008000' type='altera_avalon_onchip_memory2.s1' /><slave name='vga_proc.debug_mem_slave' start='0x4008800' end='0x4009000' type='altera_nios2_gen2.debug_mem_slave' /><slave name='pio_wren.s1' start='0x4009040' end='0x4009050' type='altera_avalon_pio.s1' /><slave name='pio_ImgAddr.s1' start='0x4009050' end='0x4009060' type='altera_avalon_pio.s1' /><slave name='pio_camready.s1' start='0x4009060' end='0x4009070' type='altera_avalon_pio.s1' /><slave name='pio_pixeldata.s1' start='0x4009070' end='0x4009080' type='altera_avalon_pio.s1' /></address-map>]]></parameter>
+  <parameter name="instSlaveMapParam"><![CDATA[<address-map><slave name='vga_mem.s1' start='0x4000' end='0x8000' type='altera_avalon_onchip_memory2.s1' /><slave name='vga_proc.debug_mem_slave' start='0x8800' end='0x9000' type='altera_nios2_gen2.debug_mem_slave' /><slave name='pio_wren.s1' start='0x9040' end='0x9050' type='altera_avalon_pio.s1' /><slave name='pio_ImgAddr.s1' start='0x9050' end='0x9060' type='altera_avalon_pio.s1' /><slave name='pio_camready.s1' start='0x9060' end='0x9070' type='altera_avalon_pio.s1' /><slave name='pio_pixeldata.s1' start='0x9070' end='0x9080' type='altera_avalon_pio.s1' /><slave name='new_sdram_controller_0.s1' start='0x4000000' end='0x8000000' type='altera_avalon_new_sdram_controller.s1' /></address-map>]]></parameter>
   <parameter name="instructionMasterHighPerformanceAddrWidth" value="1" />
   <parameter name="instructionMasterHighPerformanceMapParam" value="" />
   <parameter name="instruction_master_high_performance_paddr_base" value="0" />
@@ -1579,7 +1579,7 @@
    start="control_proc.data_master"
    end="accelerometer_spi_0.avalon_accelerometer_spi_mode_slave">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x04011210" />
+  <parameter name="baseAddress" value="0x080111f0" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1588,7 +1588,7 @@
    start="control_proc.data_master"
    end="jtag_uart_0.avalon_jtag_slave">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x04011208" />
+  <parameter name="baseAddress" value="0x080111e8" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1597,7 +1597,7 @@
    start="control_proc.data_master"
    end="control_proc.debug_mem_slave">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x04010800" />
+  <parameter name="baseAddress" value="0x08010800" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1606,7 +1606,7 @@
    start="multiplier_proc.data_master"
    end="multiplier_proc.debug_mem_slave">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x04008800" />
+  <parameter name="baseAddress" value="0x8800" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1615,7 +1615,7 @@
    start="vga_proc.data_master"
    end="vga_proc.debug_mem_slave">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x04008800" />
+  <parameter name="baseAddress" value="0x8800" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1624,7 +1624,7 @@
    start="control_proc.data_master"
    end="control_mem.s1">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x04008000" />
+  <parameter name="baseAddress" value="0x08008000" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1633,7 +1633,7 @@
    start="control_proc.data_master"
    end="new_sdram_controller_0.s1">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x0000" />
+  <parameter name="baseAddress" value="0x04000000" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1642,7 +1642,7 @@
    start="control_proc.data_master"
    end="pio_led.s1">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x040111f0" />
+  <parameter name="baseAddress" value="0x080111d0" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1651,7 +1651,7 @@
    start="control_proc.data_master"
    end="pio_sw.s1">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x040111e0" />
+  <parameter name="baseAddress" value="0x080111c0" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1660,7 +1660,7 @@
    start="control_proc.data_master"
    end="pio_pb.s1">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x040111d0" />
+  <parameter name="baseAddress" value="0x080111b0" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1669,7 +1669,7 @@
    start="control_proc.data_master"
    end="pio_gpio.s1">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x040111c0" />
+  <parameter name="baseAddress" value="0x080111a0" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1678,7 +1678,7 @@
    start="control_proc.data_master"
    end="pio_hex0.s1">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x040111b0" />
+  <parameter name="baseAddress" value="0x08011190" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1687,7 +1687,7 @@
    start="control_proc.data_master"
    end="pio_hex1.s1">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x040111a0" />
+  <parameter name="baseAddress" value="0x08011180" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1696,7 +1696,7 @@
    start="control_proc.data_master"
    end="pio_hex2.s1">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x04011190" />
+  <parameter name="baseAddress" value="0x08011170" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1705,7 +1705,7 @@
    start="control_proc.data_master"
    end="pio_hex3.s1">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x04011180" />
+  <parameter name="baseAddress" value="0x08011160" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1714,7 +1714,7 @@
    start="control_proc.data_master"
    end="pio_hex4.s1">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x04011170" />
+  <parameter name="baseAddress" value="0x08011150" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1723,7 +1723,7 @@
    start="control_proc.data_master"
    end="pio_hex5.s1">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x04011160" />
+  <parameter name="baseAddress" value="0x08011140" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1732,7 +1732,7 @@
    start="multiplier_proc.data_master"
    end="multiplier_mem.s1">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x04004000" />
+  <parameter name="baseAddress" value="0x4000" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1741,7 +1741,7 @@
    start="vga_proc.data_master"
    end="vga_mem.s1">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x04004000" />
+  <parameter name="baseAddress" value="0x4000" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1750,7 +1750,7 @@
    start="vga_proc.data_master"
    end="pio_pixeldata.s1">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x04009070" />
+  <parameter name="baseAddress" value="0x9070" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1759,7 +1759,7 @@
    start="vga_proc.data_master"
    end="pio_camready.s1">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x04009060" />
+  <parameter name="baseAddress" value="0x9060" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1768,7 +1768,7 @@
    start="vga_proc.data_master"
    end="pio_ImgAddr.s1">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x04009050" />
+  <parameter name="baseAddress" value="0x9050" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1777,7 +1777,7 @@
    start="vga_proc.data_master"
    end="pio_wren.s1">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x04009040" />
+  <parameter name="baseAddress" value="0x9040" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1786,7 +1786,7 @@
    start="control_proc.data_master"
    end="pio_spi_select.s1">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x04011150" />
+  <parameter name="baseAddress" value="0x08011130" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1795,7 +1795,7 @@
    start="control_proc.data_master"
    end="pio_led_module.s1">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x04011140" />
+  <parameter name="baseAddress" value="0x08011120" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1804,7 +1804,7 @@
    start="control_proc.data_master"
    end="pio_speaker.s1">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x04011130" />
+  <parameter name="baseAddress" value="0x08011110" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1813,7 +1813,7 @@
    start="multiplier_proc.data_master"
    end="new_sdram_controller_0.s1">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x0000" />
+  <parameter name="baseAddress" value="0x04000000" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1822,7 +1822,7 @@
    start="vga_proc.data_master"
    end="new_sdram_controller_0.s1">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x0000" />
+  <parameter name="baseAddress" value="0x04000000" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1831,7 +1831,7 @@
    start="control_proc.data_master"
    end="spi_0.spi_control_port">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x04011020" />
+  <parameter name="baseAddress" value="0x08011020" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1840,7 +1840,7 @@
    start="control_proc.instruction_master"
    end="jtag_uart_0.avalon_jtag_slave">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x04011208" />
+  <parameter name="baseAddress" value="0x080111e8" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1849,7 +1849,7 @@
    start="control_proc.instruction_master"
    end="control_proc.debug_mem_slave">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x04010800" />
+  <parameter name="baseAddress" value="0x08010800" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1858,7 +1858,7 @@
    start="multiplier_proc.instruction_master"
    end="multiplier_proc.debug_mem_slave">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x04008800" />
+  <parameter name="baseAddress" value="0x8800" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1867,7 +1867,7 @@
    start="vga_proc.instruction_master"
    end="vga_proc.debug_mem_slave">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x04008800" />
+  <parameter name="baseAddress" value="0x8800" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1876,7 +1876,7 @@
    start="control_proc.instruction_master"
    end="control_mem.s1">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x04008000" />
+  <parameter name="baseAddress" value="0x08008000" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1885,7 +1885,7 @@
    start="control_proc.instruction_master"
    end="pio_led.s1">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x040111f0" />
+  <parameter name="baseAddress" value="0x080111d0" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1894,7 +1894,7 @@
    start="control_proc.instruction_master"
    end="new_sdram_controller_0.s1">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x0000" />
+  <parameter name="baseAddress" value="0x04000000" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1903,7 +1903,7 @@
    start="control_proc.instruction_master"
    end="pio_sw.s1">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x040111e0" />
+  <parameter name="baseAddress" value="0x080111c0" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1912,7 +1912,7 @@
    start="control_proc.instruction_master"
    end="pio_pb.s1">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x040111d0" />
+  <parameter name="baseAddress" value="0x080111b0" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1921,7 +1921,7 @@
    start="control_proc.instruction_master"
    end="pio_gpio.s1">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x040111c0" />
+  <parameter name="baseAddress" value="0x080111a0" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1930,7 +1930,7 @@
    start="control_proc.instruction_master"
    end="pio_hex0.s1">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x040111b0" />
+  <parameter name="baseAddress" value="0x08011190" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1939,7 +1939,7 @@
    start="control_proc.instruction_master"
    end="pio_hex1.s1">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x040111a0" />
+  <parameter name="baseAddress" value="0x08011180" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1948,7 +1948,7 @@
    start="control_proc.instruction_master"
    end="pio_hex2.s1">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x04011190" />
+  <parameter name="baseAddress" value="0x08011170" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1957,7 +1957,7 @@
    start="control_proc.instruction_master"
    end="pio_hex3.s1">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x04011180" />
+  <parameter name="baseAddress" value="0x08011160" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1966,7 +1966,7 @@
    start="control_proc.instruction_master"
    end="pio_hex4.s1">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x04011170" />
+  <parameter name="baseAddress" value="0x08011150" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1975,7 +1975,7 @@
    start="control_proc.instruction_master"
    end="pio_hex5.s1">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x04011160" />
+  <parameter name="baseAddress" value="0x08011140" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1984,7 +1984,7 @@
    start="multiplier_proc.instruction_master"
    end="multiplier_mem.s1">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x04004000" />
+  <parameter name="baseAddress" value="0x4000" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1993,7 +1993,7 @@
    start="vga_proc.instruction_master"
    end="vga_mem.s1">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x04004000" />
+  <parameter name="baseAddress" value="0x4000" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -2002,7 +2002,7 @@
    start="vga_proc.instruction_master"
    end="pio_pixeldata.s1">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x04009070" />
+  <parameter name="baseAddress" value="0x9070" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -2011,7 +2011,7 @@
    start="vga_proc.instruction_master"
    end="pio_camready.s1">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x04009060" />
+  <parameter name="baseAddress" value="0x9060" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -2020,7 +2020,7 @@
    start="vga_proc.instruction_master"
    end="pio_ImgAddr.s1">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x04009050" />
+  <parameter name="baseAddress" value="0x9050" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -2029,7 +2029,7 @@
    start="vga_proc.instruction_master"
    end="pio_wren.s1">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x04009040" />
+  <parameter name="baseAddress" value="0x9040" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -2038,7 +2038,7 @@
    start="control_proc.instruction_master"
    end="pio_spi_select.s1">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x04011150" />
+  <parameter name="baseAddress" value="0x08011130" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -2047,7 +2047,7 @@
    start="control_proc.instruction_master"
    end="pio_led_module.s1">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x04011140" />
+  <parameter name="baseAddress" value="0x08011120" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -2056,7 +2056,7 @@
    start="control_proc.instruction_master"
    end="pio_speaker.s1">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x04011130" />
+  <parameter name="baseAddress" value="0x08011110" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -2065,7 +2065,7 @@
    start="multiplier_proc.instruction_master"
    end="new_sdram_controller_0.s1">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x0000" />
+  <parameter name="baseAddress" value="0x04000000" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -2074,7 +2074,7 @@
    start="vga_proc.instruction_master"
    end="new_sdram_controller_0.s1">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x0000" />
+  <parameter name="baseAddress" value="0x04000000" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -2083,7 +2083,7 @@
    start="control_proc.instruction_master"
    end="spi_0.spi_control_port">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x04011020" />
+  <parameter name="baseAddress" value="0x08011020" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection kind="clock" version="18.1" start="clk_50.clk" end="pio_led.clk" />
