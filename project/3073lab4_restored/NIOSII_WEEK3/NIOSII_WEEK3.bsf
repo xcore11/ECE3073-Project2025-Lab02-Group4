@@ -325,7 +325,7 @@ refer to the applicable agreement for further details.
 		(text "export" (rect 149 1051 334 2112)(font "Arial" (color 0 0 0)))
 		(text "wren" (rect 116 1067 256 2147)(font "Arial" (color 128 0 0)(font_size 9)))
 		(text "export" (rect 149 1091 334 2192)(font "Arial" (color 0 0 0)))
-		(text " system " (rect 365 1112 778 2234)(font "Arial" ))
+		(text " NIOSII_WEEK3 " (rect 326 1112 736 2234)(font "Arial" ))
 		(line (pt 144 32)(pt 256 32)(line_width 1))
 		(line (pt 256 32)(pt 256 1112)(line_width 1))
 		(line (pt 144 1112)(pt 256 1112)(line_width 1))
