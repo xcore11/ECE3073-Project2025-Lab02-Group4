@@ -4,7 +4,7 @@
  * Machine generated for CPU 'control_proc' in SOPC Builder design 'NIOSII_WEEK3'
  * SOPC Builder design path: ../../NIOSII_WEEK3.sopcinfo
  *
- * Generated: Wed Apr 15 12:23:53 SGT 2026
+ * Generated: Wed Apr 15 15:47:45 SGT 2026
  */
 
 /*
@@ -166,19 +166,19 @@
 #define ALT_NUM_INTERNAL_INTERRUPT_CONTROLLERS 1
 #define ALT_NUM_INTERRUPT_CONTROLLERS 1
 #define ALT_STDERR "/dev/jtag_uart_0"
-#define ALT_STDERR_BASE 0x40111e8
+#define ALT_STDERR_BASE 0x4011208
 #define ALT_STDERR_DEV jtag_uart_0
 #define ALT_STDERR_IS_JTAG_UART
 #define ALT_STDERR_PRESENT
 #define ALT_STDERR_TYPE "altera_avalon_jtag_uart"
 #define ALT_STDIN "/dev/jtag_uart_0"
-#define ALT_STDIN_BASE 0x40111e8
+#define ALT_STDIN_BASE 0x4011208
 #define ALT_STDIN_DEV jtag_uart_0
 #define ALT_STDIN_IS_JTAG_UART
 #define ALT_STDIN_PRESENT
 #define ALT_STDIN_TYPE "altera_avalon_jtag_uart"
 #define ALT_STDOUT "/dev/jtag_uart_0"
-#define ALT_STDOUT_BASE 0x40111e8
+#define ALT_STDOUT_BASE 0x4011208
 #define ALT_STDOUT_DEV jtag_uart_0
 #define ALT_STDOUT_IS_JTAG_UART
 #define ALT_STDOUT_PRESENT
@@ -191,7 +191,7 @@
  *
  */
 
-#define ACCELEROMETER_SPI_0_BASE 0x40111f0
+#define ACCELEROMETER_SPI_0_BASE 0x4011210
 #define ACCELEROMETER_SPI_0_IRQ 0
 #define ACCELEROMETER_SPI_0_IRQ_INTERRUPT_CONTROLLER_ID 0
 #define ACCELEROMETER_SPI_0_NAME "/dev/accelerometer_spi_0"
@@ -246,7 +246,7 @@
  */
 
 #define ALT_MODULE_CLASS_jtag_uart_0 altera_avalon_jtag_uart
-#define JTAG_UART_0_BASE 0x40111e8
+#define JTAG_UART_0_BASE 0x4011208
 #define JTAG_UART_0_IRQ 1
 #define JTAG_UART_0_IRQ_INTERRUPT_CONTROLLER_ID 0
 #define JTAG_UART_0_NAME "/dev/jtag_uart_0"
@@ -303,7 +303,7 @@
  */
 
 #define ALT_MODULE_CLASS_pio_gpio altera_avalon_pio
-#define PIO_GPIO_BASE 0x40111a0
+#define PIO_GPIO_BASE 0x40111c0
 #define PIO_GPIO_BIT_CLEARING_EDGE_REGISTER 0
 #define PIO_GPIO_BIT_MODIFYING_OUTPUT_REGISTER 0
 #define PIO_GPIO_CAPTURE 0
@@ -330,7 +330,7 @@
  */
 
 #define ALT_MODULE_CLASS_pio_hex0 altera_avalon_pio
-#define PIO_HEX0_BASE 0x4011190
+#define PIO_HEX0_BASE 0x40111b0
 #define PIO_HEX0_BIT_CLEARING_EDGE_REGISTER 0
 #define PIO_HEX0_BIT_MODIFYING_OUTPUT_REGISTER 0
 #define PIO_HEX0_CAPTURE 0
@@ -357,7 +357,7 @@
  */
 
 #define ALT_MODULE_CLASS_pio_hex1 altera_avalon_pio
-#define PIO_HEX1_BASE 0x4011180
+#define PIO_HEX1_BASE 0x40111a0
 #define PIO_HEX1_BIT_CLEARING_EDGE_REGISTER 0
 #define PIO_HEX1_BIT_MODIFYING_OUTPUT_REGISTER 0
 #define PIO_HEX1_CAPTURE 0
@@ -384,7 +384,7 @@
  */
 
 #define ALT_MODULE_CLASS_pio_hex2 altera_avalon_pio
-#define PIO_HEX2_BASE 0x4011170
+#define PIO_HEX2_BASE 0x4011190
 #define PIO_HEX2_BIT_CLEARING_EDGE_REGISTER 0
 #define PIO_HEX2_BIT_MODIFYING_OUTPUT_REGISTER 0
 #define PIO_HEX2_CAPTURE 0
@@ -411,7 +411,7 @@
  */
 
 #define ALT_MODULE_CLASS_pio_hex3 altera_avalon_pio
-#define PIO_HEX3_BASE 0x4011160
+#define PIO_HEX3_BASE 0x4011180
 #define PIO_HEX3_BIT_CLEARING_EDGE_REGISTER 0
 #define PIO_HEX3_BIT_MODIFYING_OUTPUT_REGISTER 0
 #define PIO_HEX3_CAPTURE 0
@@ -438,7 +438,7 @@
  */
 
 #define ALT_MODULE_CLASS_pio_hex4 altera_avalon_pio
-#define PIO_HEX4_BASE 0x4011150
+#define PIO_HEX4_BASE 0x4011170
 #define PIO_HEX4_BIT_CLEARING_EDGE_REGISTER 0
 #define PIO_HEX4_BIT_MODIFYING_OUTPUT_REGISTER 0
 #define PIO_HEX4_CAPTURE 0
@@ -465,7 +465,7 @@
  */
 
 #define ALT_MODULE_CLASS_pio_hex5 altera_avalon_pio
-#define PIO_HEX5_BASE 0x4011140
+#define PIO_HEX5_BASE 0x4011160
 #define PIO_HEX5_BIT_CLEARING_EDGE_REGISTER 0
 #define PIO_HEX5_BIT_MODIFYING_OUTPUT_REGISTER 0
 #define PIO_HEX5_CAPTURE 0
@@ -492,7 +492,7 @@
  */
 
 #define ALT_MODULE_CLASS_pio_led altera_avalon_pio
-#define PIO_LED_BASE 0x40111d0
+#define PIO_LED_BASE 0x40111f0
 #define PIO_LED_BIT_CLEARING_EDGE_REGISTER 0
 #define PIO_LED_BIT_MODIFYING_OUTPUT_REGISTER 0
 #define PIO_LED_CAPTURE 0
@@ -519,7 +519,7 @@
  */
 
 #define ALT_MODULE_CLASS_pio_led_module altera_avalon_pio
-#define PIO_LED_MODULE_BASE 0x4011120
+#define PIO_LED_MODULE_BASE 0x4011140
 #define PIO_LED_MODULE_BIT_CLEARING_EDGE_REGISTER 0
 #define PIO_LED_MODULE_BIT_MODIFYING_OUTPUT_REGISTER 0
 #define PIO_LED_MODULE_CAPTURE 0
@@ -546,7 +546,7 @@
  */
 
 #define ALT_MODULE_CLASS_pio_pb altera_avalon_pio
-#define PIO_PB_BASE 0x40111b0
+#define PIO_PB_BASE 0x40111d0
 #define PIO_PB_BIT_CLEARING_EDGE_REGISTER 0
 #define PIO_PB_BIT_MODIFYING_OUTPUT_REGISTER 0
 #define PIO_PB_CAPTURE 0
@@ -573,7 +573,7 @@
  */
 
 #define ALT_MODULE_CLASS_pio_speaker altera_avalon_pio
-#define PIO_SPEAKER_BASE 0x4011110
+#define PIO_SPEAKER_BASE 0x4011130
 #define PIO_SPEAKER_BIT_CLEARING_EDGE_REGISTER 0
 #define PIO_SPEAKER_BIT_MODIFYING_OUTPUT_REGISTER 0
 #define PIO_SPEAKER_CAPTURE 0
@@ -600,7 +600,7 @@
  */
 
 #define ALT_MODULE_CLASS_pio_spi_select altera_avalon_pio
-#define PIO_SPI_SELECT_BASE 0x4011130
+#define PIO_SPI_SELECT_BASE 0x4011150
 #define PIO_SPI_SELECT_BIT_CLEARING_EDGE_REGISTER 0
 #define PIO_SPI_SELECT_BIT_MODIFYING_OUTPUT_REGISTER 0
 #define PIO_SPI_SELECT_CAPTURE 0
@@ -627,7 +627,7 @@
  */
 
 #define ALT_MODULE_CLASS_pio_sw altera_avalon_pio
-#define PIO_SW_BASE 0x40111c0
+#define PIO_SW_BASE 0x40111e0
 #define PIO_SW_BIT_CLEARING_EDGE_REGISTER 0
 #define PIO_SW_BIT_MODIFYING_OUTPUT_REGISTER 0
 #define PIO_SW_CAPTURE 0

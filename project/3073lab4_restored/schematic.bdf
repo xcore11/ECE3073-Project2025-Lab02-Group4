@@ -119,7 +119,7 @@ refer to the applicable agreement for further details.
 		(line (pt 109 12)(pt 113 8))
 	)
 	(text "VCC" (rect 128 7 148 17)(font "Arial" (font_size 6)))
-	(annotation_block (location)(rect 464 960 536 984))
+	(annotation_block (location)(rect 504 928 536 936))
 )
 (pin
 	(input)
@@ -136,7 +136,7 @@ refer to the applicable agreement for further details.
 		(line (pt 125 12)(pt 129 8))
 	)
 	(text "VCC" (rect 144 7 164 17)(font "Arial" (font_size 6)))
-	(annotation_block (location)(rect 456 1048 520 1072))
+	(annotation_block (location)(rect 512 1048 576 1072))
 )
 (pin
 	(output)
@@ -598,7 +598,7 @@ refer to the applicable agreement for further details.
 		(line (pt 98 4)(pt 94 8))
 	)
 	(rotate180)
-	(annotation_block (location)(rect 488 984 520 992))
+	(annotation_block (location)(rect 504 960 536 968))
 )
 (pin
 	(output)
@@ -755,7 +755,7 @@ refer to the applicable agreement for further details.
 	)
 )
 (symbol
-	(rect -8 1056 256 1200)
+	(rect -160 1056 104 1200)
 	(text "vga_controller" (rect 5 0 74 12)(font "Arial" ))
 	(text "inst2" (rect 8 128 30 145)(font "Intel Clear" ))
 	(port
@@ -857,7 +857,7 @@ refer to the applicable agreement for further details.
 	(drawing
 		(rectangle (rect 16 16 248 128))
 	)
-	(annotation_block (parameter)(rect 120 1040 152 1056))
+	(annotation_block (parameter)(rect -32 1040 0 1056))
 )
 (symbol
 	(rect 80 248 336 400)
@@ -915,7 +915,7 @@ refer to the applicable agreement for further details.
 	)
 )
 (symbol
-	(rect 280 864 536 1000)
+	(rect 216 864 472 1000)
 	(text "pxl" (rect 120 0 140 16)(font "Arial" (font_size 10)))
 	(text "inst4" (rect 8 120 30 137)(font "Intel Clear" ))
 	(port
@@ -1404,92 +1404,6 @@ refer to the applicable agreement for further details.
 	(pt 360 432)
 )
 (connector
-	(pt 552 848)
-	(pt 208 848)
-)
-(connector
-	(pt -24 1016)
-	(pt -24 1104)
-	(bus)
-)
-(connector
-	(pt -24 1104)
-	(pt -8 1104)
-	(bus)
-)
-(connector
-	(pt -48 1088)
-	(pt -8 1088)
-)
-(connector
-	(pt -24 1016)
-	(pt 544 1016)
-	(bus)
-)
-(connector
-	(pt 208 848)
-	(pt 208 928)
-)
-(connector
-	(pt 544 952)
-	(pt 536 952)
-	(bus)
-)
-(connector
-	(pt 544 1016)
-	(pt 544 952)
-	(bus)
-)
-(connector
-	(pt 160 896)
-	(pt 280 896)
-	(bus)
-)
-(connector
-	(pt 184 912)
-	(pt 280 912)
-	(bus)
-)
-(connector
-	(pt 208 928)
-	(pt 280 928)
-)
-(connector
-	(pt 272 952)
-	(pt 280 952)
-	(bus)
-)
-(connector
-	(pt 280 976)
-	(pt -48 976)
-)
-(connector
-	(pt -48 432)
-	(pt -48 976)
-)
-(connector
-	(pt -48 976)
-	(pt -48 1088)
-)
-(connector
-	(text "VGA_ADDR[16..0]" (rect 256 1006 273 1090)(font "Intel Clear" )(vertical))
-	(pt 272 1088)
-	(pt 272 952)
-	(bus)
-)
-(connector
-	(text "VGA_ADDR[18..0]" (rect 256 1072 340 1089)(font "Intel Clear" ))
-	(pt 256 1088)
-	(pt 272 1088)
-	(bus)
-)
-(connector
-	(text "VGA_ADDR[18..0]" (rect 314 1072 398 1089)(font "Intel Clear" ))
-	(pt 272 1088)
-	(pt 416 1088)
-	(bus)
-)
-(connector
 	(pt 704 96)
 	(pt 784 96)
 )
@@ -1517,11 +1431,6 @@ refer to the applicable agreement for further details.
 (connector
 	(pt 704 1040)
 	(pt 784 1040)
-)
-(connector
-	(pt 184 912)
-	(pt 184 712)
-	(bus)
 )
 (connector
 	(pt 32 120)
@@ -1652,23 +1561,141 @@ refer to the applicable agreement for further details.
 )
 (connector
 	(pt 160 872)
-	(pt 160 896)
-	(bus)
-)
-(connector
-	(pt 160 872)
 	(pt 784 872)
 	(bus)
 )
 (connector
-	(pt 552 1120)
-	(pt 552 848)
+	(pt 256 1104)
+	(pt 104 1104)
+	(bus)
 )
 (connector
-	(pt 552 1120)
+	(pt 256 1120)
+	(pt 104 1120)
+	(bus)
+)
+(connector
+	(pt 256 1136)
+	(pt 104 1136)
+	(bus)
+)
+(connector
+	(pt 256 1152)
+	(pt 104 1152)
+)
+(connector
+	(pt 256 1168)
+	(pt 104 1168)
+)
+(connector
+	(pt -48 432)
+	(pt -48 976)
+)
+(connector
+	(pt -224 1016)
+	(pt -224 1104)
+	(bus)
+)
+(connector
+	(pt -160 1104)
+	(pt -224 1104)
+	(bus)
+)
+(connector
+	(pt -160 1088)
+	(pt -256 1088)
+)
+(connector
+	(pt -256 976)
+	(pt -256 1088)
+)
+(connector
+	(pt 208 848)
+	(pt 208 928)
+)
+(connector
+	(pt 160 896)
+	(pt 216 896)
+	(bus)
+)
+(connector
+	(pt 184 912)
+	(pt 216 912)
+	(bus)
+)
+(connector
+	(pt 208 928)
+	(pt 216 928)
+)
+(connector
+	(pt 184 712)
+	(pt 184 912)
+	(bus)
+)
+(connector
+	(pt 160 872)
+	(pt 160 896)
+	(bus)
+)
+(connector
+	(pt -256 976)
+	(pt -48 976)
+)
+(connector
+	(pt -48 976)
+	(pt 216 976)
+)
+(connector
+	(pt 208 848)
+	(pt 504 848)
+)
+(connector
+	(pt 504 1120)
+	(pt 504 848)
+)
+(connector
 	(pt 784 1120)
+	(pt 504 1120)
+)
+(connector
+	(pt 216 952)
+	(pt 192 952)
+	(bus)
+)
+(connector
+	(text "VGA_ADDR[16..0]" (rect 152 1006 169 1090)(font "Intel Clear" )(vertical))
+	(pt 192 1088)
+	(pt 192 952)
+	(bus)
+)
+(connector
+	(text "VGA_ADDR[18..0]" (rect 202 1064 286 1081)(font "Intel Clear" ))
+	(pt 192 1088)
+	(pt 408 1088)
+	(bus)
+)
+(connector
+	(text "VGA_ADDR[18..0]" (rect 114 1072 198 1089)(font "Intel Clear" ))
+	(pt 104 1088)
+	(pt 192 1088)
+	(bus)
+)
+(connector
+	(pt -224 1016)
+	(pt 488 1016)
+	(bus)
+)
+(connector
+	(pt 488 1016)
+	(pt 488 952)
+	(bus)
+)
+(connector
+	(pt 472 952)
+	(pt 488 952)
+	(bus)
 )
 (junction (pt 32 120))
 (junction (pt 32 224))
-(junction (pt 272 1088))
 (junction (pt -48 976))
+(junction (pt 192 1088))
