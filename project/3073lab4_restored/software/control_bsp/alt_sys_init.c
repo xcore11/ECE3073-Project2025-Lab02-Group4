@@ -4,7 +4,7 @@
  * Machine generated for CPU 'control_proc' in SOPC Builder design 'NIOSII_WEEK3'
  * SOPC Builder design path: ../../NIOSII_WEEK3.sopcinfo
  *
- * Generated: Wed Apr 15 12:23:53 SGT 2026
+ * Generated: Sat Apr 18 08:45:05 SGT 2026
  */
 
 /*

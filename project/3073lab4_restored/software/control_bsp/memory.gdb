@@ -3,7 +3,7 @@
 # Machine generated for CPU 'control_proc' in SOPC Builder design 'NIOSII_WEEK3'
 # SOPC Builder design path: ../../NIOSII_WEEK3.sopcinfo
 #
-# Generated: Wed Apr 15 17:26:02 SGT 2026
+# Generated: Sat Apr 18 08:45:05 SGT 2026
 
 # DO NOT MODIFY THIS FILE
 #
@@ -47,7 +47,7 @@
 # by allowing GDB to cache memory contents on the host.
 
 # new_sdram_controller_0
-memory 0x4000000 0x8000000 cache
+memory 0x0 0x4000000 cache
 
 # control_mem
-memory 0x8008000 0x8010000 cache
+memory 0x4008000 0x4010000 cache

@@ -4,7 +4,7 @@
  * Machine generated for CPU 'control_proc' in SOPC Builder design 'NIOSII_WEEK3'
  * SOPC Builder design path: ../../NIOSII_WEEK3.sopcinfo
  *
- * Generated: Wed Apr 15 17:26:02 SGT 2026
+ * Generated: Sat Apr 18 08:45:05 SGT 2026
  */
 
 /*
@@ -65,11 +65,11 @@
  *
  */
 
-#define CONTROL_MEM_REGION_BASE 0x8008020
+#define CONTROL_MEM_REGION_BASE 0x4008020
 #define CONTROL_MEM_REGION_SPAN 32736
-#define NEW_SDRAM_CONTROLLER_0_REGION_BASE 0x6000000
+#define NEW_SDRAM_CONTROLLER_0_REGION_BASE 0x2000000
 #define NEW_SDRAM_CONTROLLER_0_REGION_SPAN 33554432
-#define RESET_REGION_BASE 0x8008000
+#define RESET_REGION_BASE 0x4008000
 #define RESET_REGION_SPAN 32
 
 
