@@ -2,6 +2,7 @@
 #include <unistd.h>
 #include "switches.h"
 #include "speaker.h"
+#include "traffic_led.h"
 #include "system.h"
 #include "altera_avalon_pio_regs.h"
 #include <stdio.h>
@@ -31,13 +32,40 @@ int main(void)
 {
 	printf ("test");
 	int switch_state = 0;
+
+	// just to demo traffic LED
+	int counter = 0;
+	int threshold = 200000;
+	int flag = 0;
     while (1)
     {
     	switch_state = IORD_ALTERA_AVALON_PIO_DATA(PIO_SW_BASE);
     	HEX_enable (switch_state);
-    	handle_switch2 (switch_state, "ECE3073");
+    	handle_switch2 (switch_state, "TEST123");
     	handle_switch3 (switch_state);
     	handle_switch4 (switch_state, 1000);
+
+    	// just to demo traffic LED
+    	counter ++;
+    	if (counter > threshold) {
+    		if (flag == 0) {
+    			flag = 1;
+    			green_light(0);
+    			red_light (1);
+
+    		}
+    		else if (flag == 1) {
+    			flag = 2;
+    			red_light (0);
+    			yellow_light (1);
+    		}
+    		else if (flag == 2) {
+    			flag = 0;
+    			yellow_light (0);
+    			green_light (1);
+    		}
+    		counter = 0;
+    	}
     }
 
     return 0;
