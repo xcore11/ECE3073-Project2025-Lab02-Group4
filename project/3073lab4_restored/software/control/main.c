@@ -1,6 +1,7 @@
 #include "io.h"
 #include <unistd.h>
 #include "switches.h"
+#include "speaker.h"
 #include "system.h"
 #include "altera_avalon_pio_regs.h"
 #include <stdio.h>
@@ -36,7 +37,7 @@ int main(void)
     	HEX_enable (switch_state);
     	handle_switch2 (switch_state, "ECE3073");
     	handle_switch3 (switch_state);
-    	handle_switch4 (switch_state);
+    	handle_switch4 (switch_state, 1000);
     }
 
     return 0;
