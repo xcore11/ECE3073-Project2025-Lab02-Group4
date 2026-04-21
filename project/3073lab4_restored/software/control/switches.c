@@ -6,6 +6,7 @@
  */
 
 #include "switches.h"
+#include "speaker.h"
 #include "system.h"
 #include "altera_avalon_pio_regs.h"
 #include <stdio.h>
@@ -104,12 +105,12 @@ void handle_switch3(int state) {
 	}
 }
 
-void handle_switch4(int state) {
+void handle_switch4(int state, int frequency) {
 	if (state & 0x08) {
-		IOWR_ALTERA_AVALON_PIO_DATA (PIO_LED_BASE, 1);
+		play_speaker (frequency, 1);
 	}
 	else {
-		IOWR_ALTERA_AVALON_PIO_DATA (PIO_LED_BASE, 0);
+		play_speaker (frequency, 0);
 	}
 }
 
