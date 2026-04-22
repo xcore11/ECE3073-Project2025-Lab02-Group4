@@ -8,8 +8,6 @@ Ooi Li Xiang 		 33070040 	looi0005@student.monash.edu
 =====================================================================
 
 
-
-
 # Project Files
 
 This repository provides files and/or templates to help you get started with the ECE3073 project milestones.
@@ -25,14 +23,21 @@ project-skeleton/
 ```
 
 ## Getting Started
+# What You'll Need:
 1. Clone the repository:
    ```sh
    git clone https://github.com/ece3073-monash/project-templates.git
    ```
 2. Copy files .gitignore and template files in your project directory.
+3. M1 and M2 are template files, the current Milestone is updated and stashed on their respective files after demo under 'project' file. A new project file is created after each demo.
+
+## Roadmap
+
+## Contributing
+
 
 ## License
-Copyright © 2025 Copyright, Monash University
+Copyright © 2026 Copyright, Monash University
 
 
 
