@@ -22,6 +22,9 @@
 //#define PIO_HEX0_BASE           0x08011190
 //
 //#define PIO_SPI_SELECT_BASE     0x08011130
+#define PIO_IMGADDR_BASE 0x9050
+#define PIO_PIXELDATA_BASE 0x9070
+#define PIO_WREN_BASE 0x9040
 
 /* existing switch / HEX functions */
 void HEX_enable(int state);
@@ -51,5 +54,9 @@ int accel_init(void);
 int accel_read_x(int *x);
 int accel_read_y(int *y);
 int accel_read_z(int *z);
+
+/* VGA */
+void vga_init(void);
+void vga_step(void);
 
 #endif

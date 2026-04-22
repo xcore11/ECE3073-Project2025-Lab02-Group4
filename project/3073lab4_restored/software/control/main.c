@@ -3,12 +3,11 @@
 #include <stdio.h>
 #include <string.h>
 #include "switches.h"
-#include "speaker.h"
-#include "traffic_led.h"
 #include "system.h"
 #include "altera_avalon_pio_regs.h"
 
 #define PB1_MASK 0x02
+#define PB2_MASK 0x04
 #define USER_MESSAGE "I Love NIOS"
 #define USER_MESSAGE_LENGTH 16
 
@@ -22,6 +21,9 @@ int main(void)
     int key_state = 0;
     int pb1_pressed = 0;
     int pb1_armed = 1;
+    int pb2_pressed = 0;
+    int pb2_armed = 1;
+    int vga_enabled = 0;
 
     // Setup Accel Parameters
     int x, y, z;
@@ -43,6 +45,10 @@ int main(void)
     // Setup SPI
     spi_init_manual();
 
+    // Setup VGA
+    vga_init();
+    int vga_done = 0;
+
     /* initial traffic light */
     green_light(1);
     yellow_light(0);
@@ -62,10 +68,37 @@ int main(void)
 
         if (pb1_pressed && pb1_armed)
         {
-            spi_start_capture(USER_MESSAGE);
-            pb1_armed = 0;
+            usleep(20000);
 
-            usleep(200000);
+            key_state = IORD_ALTERA_AVALON_PIO_DATA(PIO_PB_BASE);
+            pb1_pressed = ((key_state & PB1_MASK) == 0);
+
+            if (pb1_pressed) {
+                spi_start_capture(USER_MESSAGE);
+                pb1_armed = 0;
+
+                usleep(200000);
+            }
+        }
+
+        // Debounced Button and VGA Starts
+        pb2_pressed = ((key_state & PB2_MASK) == 0);
+
+        if (!pb2_pressed) {
+            pb2_armed = 1;
+        }
+
+        if (pb2_pressed && pb2_armed)
+        {
+            usleep(20000);
+
+            key_state = IORD_ALTERA_AVALON_PIO_DATA(PIO_PB_BASE);
+            pb2_pressed = ((key_state & PB2_MASK) == 0);
+
+            if (pb2_pressed) {
+                vga_enabled = !vga_enabled;
+                pb2_armed = 0;
+            }
         }
 
         // Flag Switch and Reset HEX
@@ -126,6 +159,12 @@ int main(void)
             accel_read_z(&z);
 
             printf("Accel X = %d, Y = %d, Z = %d\n", x, y, z);
+        }
+
+        // VGA Integration
+        if (vga_enabled && !vga_done) {
+            vga_step();
+            vga_done = 1;
         }
     }
 
