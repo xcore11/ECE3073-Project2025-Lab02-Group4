@@ -50,7 +50,7 @@ ECE3073-Project2025-Lab02-Group4/
 
 # Hardware
 1. Follow the pinout connection as shown below:
-   ![alt_text](https://imgur.com/a/VrLGbXJ)
+   ![Wiring Diagram](https://i.imgur.com/L8OQDLU.png)
 
 ## Roadmap
 ### Milestone 1: VGA Controller
