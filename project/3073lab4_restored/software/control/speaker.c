@@ -8,7 +8,7 @@
 #include "system.h"
 #include "io.h"
 #include "altera_avalon_pio_regs.h"
-#include "speaker.h"
+#include "switches.h"
 
 static int speaker_current = 0; // current state of the speaker
 static int toggle_counter = 0; // counter for toggling
