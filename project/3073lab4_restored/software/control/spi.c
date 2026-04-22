@@ -4,42 +4,48 @@
 #include <string.h>
 #include <unistd.h>
 
-/* =========================
-   User-configurable settings
-   ========================= */
+// SPI register base address
 #define SPI_BASE            0x08011020
+
+// Offsets for each SPI register
 #define SPI_RXDATA_OFS      0
 #define SPI_TXDATA_OFS      4
 #define SPI_STATUS_OFS      8
 #define SPI_CONTROL_OFS     12
 #define SPI_SLAVESEL_OFS    20
 
-#define SPI_STATUS_RRDY     (1 << 7)
-#define SPI_STATUS_TRDY     (1 << 6)
-#define SPI_STATUS_TMT      (1 << 5)
-#define SPI_STATUS_TOE      (1 << 4)
-#define SPI_STATUS_ROE      (1 << 3)
-#define SPI_STATUS_E        (1 << 8)
+// Status bits from SPI status register
+#define SPI_STATUS_RRDY     (1 << 7)   // receive data ready
+#define SPI_STATUS_TRDY     (1 << 6)   // transmit ready
+#define SPI_STATUS_TMT      (1 << 5)   // transmit empty
+#define SPI_STATUS_TOE      (1 << 4)   // transmit overflow error
+#define SPI_STATUS_ROE      (1 << 3)   // receive overflow error
+#define SPI_STATUS_E        (1 << 8)   // generic error
 
+// Control bit to hold slave select active
 #define SPI_CONTROL_SSO     (1 << 10)
 
+// General SPI settings
 #define SPI_TIMEOUT         1000000UL
 #define SPI_SLAVE_0         0x1
 #define ESP_REPLY_WAIT_US   5200000UL
 
-/* max message length to send/receive */
+// Maximum length of message
 #define SPI_MAX_MSG_LEN     64
 
-static int  spi_valid = 0;
+// Stores whether latest received message is valid
+static int spi_valid = 0;
+
+// Stores received SPI message
 static char rx_message[SPI_MAX_MSG_LEN + 1];
 
-/* ---------- low-level helpers ---------- */
-
+// Clears SPI error flags
 static void spi_clear_errors(void)
 {
     IOWR_32DIRECT(SPI_BASE, SPI_STATUS_OFS, 0);
 }
 
+// Wait until transmit register is ready
 static int spi_wait_trdy(void)
 {
     uint32_t timeout = SPI_TIMEOUT;
@@ -52,6 +58,7 @@ static int spi_wait_trdy(void)
     return 0;
 }
 
+// Wait until receive data is ready
 static int spi_wait_rrdy(void)
 {
     uint32_t timeout = SPI_TIMEOUT;
@@ -64,6 +71,7 @@ static int spi_wait_rrdy(void)
     return 0;
 }
 
+// Wait until transmitter is fully empty
 static int spi_wait_tmt(void)
 {
     uint32_t timeout = SPI_TIMEOUT;
@@ -76,34 +84,42 @@ static int spi_wait_tmt(void)
     return 0;
 }
 
+// Starts an SPI transaction by selecting slave 0
 static void spi_begin_transaction(void)
 {
     IOWR_32DIRECT(SPI_BASE, SPI_SLAVESEL_OFS, SPI_SLAVE_0);
     IOWR_32DIRECT(SPI_BASE, SPI_CONTROL_OFS, SPI_CONTROL_SSO);
 }
 
+// Ends the transaction after making sure last byte finished sending
 static void spi_end_transaction(void)
 {
     spi_wait_tmt();
     IOWR_32DIRECT(SPI_BASE, SPI_CONTROL_OFS, 0);
 }
 
+// Sends one byte and reads one byte back
 static int spi_transfer_byte(uint8_t tx, uint8_t *rx)
 {
     uint32_t status;
 
+    // wait until SPI can accept a new byte to transmit
     if (!spi_wait_trdy()) {
         return 0;
     }
 
+    // write transmit byte into TX register
     IOWR_32DIRECT(SPI_BASE, SPI_TXDATA_OFS, tx);
 
+    // wait until a byte comes back
     if (!spi_wait_rrdy()) {
         return 0;
     }
 
+    // read only the lowest 8 bits from RX register
     *rx = (uint8_t)(IORD_32DIRECT(SPI_BASE, SPI_RXDATA_OFS) & 0xFF);
 
+    // check if any SPI error happened
     status = IORD_32DIRECT(SPI_BASE, SPI_STATUS_OFS);
     if (status & (SPI_STATUS_TOE | SPI_STATUS_ROE | SPI_STATUS_E)) {
         spi_clear_errors();
@@ -113,8 +129,7 @@ static int spi_transfer_byte(uint8_t tx, uint8_t *rx)
     return 1;
 }
 
-/* ---------- API used by main.c ---------- */
-
+// Initializes SPI software state and clears buffers
 void spi_init_manual(void)
 {
     spi_valid = 0;
@@ -125,6 +140,7 @@ void spi_init_manual(void)
     IOWR_32DIRECT(SPI_BASE, SPI_CONTROL_OFS, 0);
 }
 
+// Sends a message first, then clocks back a reply from slave
 void spi_start_capture(const char *message)
 {
     int i;
@@ -133,6 +149,7 @@ void spi_start_capture(const char *message)
     uint8_t rx_byte;
     char tx_message[SPI_MAX_MSG_LEN + 1];
 
+    // reset previous result
     spi_valid = 0;
     memset(rx_message, 0, sizeof(rx_message));
 
@@ -140,7 +157,7 @@ void spi_start_capture(const char *message)
         return;
     }
 
-    /* copy safely and compute actual length */
+    // copy the message safely into local buffer
     strncpy(tx_message, message, SPI_MAX_MSG_LEN);
     tx_message[SPI_MAX_MSG_LEN] = '\0';
     msg_len = strlen(tx_message);
@@ -151,10 +168,11 @@ void spi_start_capture(const char *message)
 
     spi_clear_errors();
 
-    /* Transaction 1: send full message to ESP32 */
+    // first transaction: send the whole message to slave
     spi_begin_transaction();
 
     for (i = 0; i < msg_len; i++) {
+        // received byte is ignored here, so store in throwaway
         if (!spi_transfer_byte((uint8_t)tx_message[i], &throwaway)) {
             spi_end_transaction();
             return;
@@ -163,15 +181,16 @@ void spi_start_capture(const char *message)
 
     spi_end_transaction();
 
-    /* Wait for ESP32 delay(5000) + queue reply */
+    // optional wait in case slave needs time to prepare reply
     // usleep(ESP_REPLY_WAIT_US);
 
     spi_clear_errors();
 
-    /* Transaction 2: send dummy bytes, read full reply back */
+    // second transaction: send dummy bytes to read reply back
     spi_begin_transaction();
 
     for (i = 0; i < msg_len; i++) {
+        // sending 0x00 just generates clock so slave can return data
         if (!spi_transfer_byte(0x00, &rx_byte)) {
             spi_end_transaction();
             return;
@@ -181,27 +200,28 @@ void spi_start_capture(const char *message)
 
     spi_end_transaction();
 
+    // add null terminator so rx_message becomes a proper C string
     rx_message[msg_len] = '\0';
 
+    // mark valid only if reply matches original message
     if (memcmp(rx_message, tx_message, msg_len) == 0) {
         spi_valid = 1;
     }
 }
 
-void spi_service(void)
-{
-}
-
+// Not used for now because this SPI code is blocking
 int spi_is_busy(void)
 {
     return 0;
 }
 
+// Returns whether latest message received is valid
 int spi_has_valid_message(void)
 {
     return spi_valid;
 }
 
+// Copies received message into user buffer
 void spi_get_message(char *buf, int max_len)
 {
     int n;

@@ -15,25 +15,30 @@
 
 int main(void)
 {
+	// Input Para
     int switch_state = 0;
     int key_state = 0;
     int pb1_pressed = 0;
     int pb1_armed = 1;
 
+    // Setup Accel Parameters
     int x, y, z;
     int accel_counter = ACCEL_THRESHOLD;
 
+    // Failed Accel Initialization Check
     if (accel_init() != 0) {
         printf("Accelerometer init failed\n");
         while (1);
     }
 
+    // Declare SPI MSG buffer
     char spi_msg[USER_MESSAGE_LENGTH + 1];
 
-    /* traffic light state */
+    // Setup Traffic Light
     int traffic_counter = 0;
     int traffic_state = 0;   /* 0=green, 1=yellow, 2=red */
 
+    // Setup SPI
     spi_init_manual();
 
     /* initial traffic light */
@@ -46,6 +51,7 @@ int main(void)
         switch_state = IORD_ALTERA_AVALON_PIO_DATA(PIO_SW_BASE);
         key_state    = IORD_ALTERA_AVALON_PIO_DATA(PIO_PB_BASE);
 
+        // Debounced Button and SPI Starts
         pb1_pressed = ((key_state & PB1_MASK) == 0);
 
         if (!pb1_pressed) {
@@ -60,12 +66,11 @@ int main(void)
             usleep(200000);
         }
 
-        spi_service();
-
+        // Flag Switch and Reset HEX
         HEX_enable(switch_state);
 
-        /* CLEAR buffer before getting new message */
-        memset(spi_msg, 0, sizeof(spi_msg));
+        // Clear Buffer
+        // memset(spi_msg, 0, sizeof(spi_msg));
 
         if (spi_has_valid_message())
         {
@@ -77,11 +82,12 @@ int main(void)
             handle_switch2(switch_state, "");
         }
 
+        // Handle CPU and Speaker switch
         handle_switch3(switch_state);
         handle_switch4(switch_state);
 
 
-        /* traffic light integration */
+        // Traffic Light operation
         traffic_counter++;
         if (traffic_counter >= TRAFFIC_THRESHOLD)
         {
@@ -107,7 +113,7 @@ int main(void)
             traffic_counter = 0;
         }
 
-        /* Accel Integration */
+        // Accel Integration
         accel_counter++;
 
         if (accel_counter >= 5000) {
