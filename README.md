@@ -51,6 +51,20 @@ ECE3073-Project2025-Lab02-Group4/
 # Hardware
 1. Follow the pinout connection as shown below:
    ![Wiring Diagram](https://i.imgur.com/L8OQDLU.png)
+2. Ensure the VGA connector is connected to a monitor.
+
+## What is Expected
+# Milestone 1
+1. SW0 - Controls HEX display
+2. SW1 - Displays the captured sentence, in this case a dummy sentence is hardcoded into the switch.
+3. SW2 - Displays the CPU usage percentage, in this case a dummy sentence is hardcoded into the switch.
+4. SW3 - The buzzer is activated, in this case a dummy noise with a specific frequency is hardcoded into the switch.
+5. KEY1 - Displays the captured image into the monitor, in this case a dummy image is coded into the button.
+6. Traffic LEDs - Operates as according to the sentence, in this case dummy instructions is provided to the LED.
+7. Accelerometer - Measures the tilt axis of the FPGA board.
+8. Speaker - Paired with SW3 to emit noise.
+9. HEX Display - Display message (1st to 4th display) and CPU usage (5th and 6th display).
+10. SPI - Exchange message between ESP32 board and the FPGA board.
 
 ## Roadmap
 ### Milestone 1: VGA Controller
