@@ -1,22 +1,27 @@
-=====================================================================
-ECE3073 LAB_2 GROUP_4
+## Project 
 
-Chin Wei Chun		 33520569 	wchi0051@student.monash.edu
-Sean Loh Kim Fook	 34640509 	sloh0020@student.monash.edu
-Ooi Li Xiang 		 33070040 	looi0005@student.monash.edu
+This repository contains the core project structure, templates, and supporting files for the ECE3073 mini-project on **Real-Time Embedded Vision using ARM and FPGA-based multitasking systems**.
 
-=====================================================================
+The project focuses on integrating an edge-AI vision module with a NIOS II multicore system on FPGA to capture, process, and display real-time visual data. The system performs text recognition using a vision module and executes embedded instructions through hardware peripherals such as VGA, LEDs, HEX displays, and audio output.
 
+The provided files are designed to guide development across multiple milestones, from basic hardware interfacing to full system integration and optimization.
 
-# Project Files
-
-This repository provides files and/or templates to help you get started with the ECE3073 project milestones.
+### Key Features Covered
+- FPGA-based embedded system using DE10-Lite
+- Multicore NIOS II processor architecture
+- Real-time image/text processing via Grove AI Vision module
+- SPI/UART communication between modules
+- VGA display output and graphical rendering
+- Hardware interaction (LEDs, switches, HEX display, speaker)
+- Accelerometer-based orientation control
+- Optional RTOS for task scheduling and multitasking
 
 ## Structure
 ```
-project-skeleton/
-│-- M1/              # Contains VGA controller
-│-- M2/              # Skeleton files for image convolution and SPI-Gyro communication
+ECE3073-Project2025-Lab02-Group4/
+│-- M1/              # Contains VGA controller skeleton
+│-- M2/              # Skeleton files for image convolution and SPI-Gyro communication skeleton
+|-- project/         # Main project file, currently for M1
 │-- .gitignore       # Git ignore file to be used with your Quartus project
 │-- README.md        # Documentation and/or instructions
 
@@ -37,8 +42,8 @@ project-skeleton/
    - [x] Delegation of tasks is completed
 - [x] Switches & HEX dispay completed (SEAN)
 - [x] VGA & Speaker Completed (LX)
-- [ ] SPI Trial & Accelerometer Completed (WC)
-- [ ] System Integration
+- [x] SPI Trial & Accelerometer Completed (WC)
+- [x] System Integration
    - [x] Meeting #1 at 20/4/2026
       - [x] Integration of Speaker and LED Module (SEAN)
       - [x] Attempt at 2 processor VGA (LX)
