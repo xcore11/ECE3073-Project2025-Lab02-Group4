@@ -2,8 +2,8 @@
 <sch:Settings xmlns:sch="http://www.altera.com/embeddedsw/bsp/schema">
         <BspType>hal</BspType>
         <BspVersion>default</BspVersion>
-        <BspGeneratedTimeStamp>Apr 21, 2026 6:44:33 PM</BspGeneratedTimeStamp>
-        <BspGeneratedUnixTimeStamp>1776768273562</BspGeneratedUnixTimeStamp>
+        <BspGeneratedTimeStamp>Apr 22, 2026 10:52:02 AM</BspGeneratedTimeStamp>
+        <BspGeneratedUnixTimeStamp>1776826322194</BspGeneratedUnixTimeStamp>
         <BspGeneratedLocation>C:\temp\ECE3073-Project2025-Lab02-Group4\project\3073lab4_restored\software\control_bsp</BspGeneratedLocation>
         <BspSettingsFile>settings.bsp</BspSettingsFile>
         <SopcDesignFile>..\..\NIOSII_WEEK3.sopcinfo</SopcDesignFile>
@@ -922,6 +922,30 @@
                 <baseAddress>0x8008020</baseAddress>
                 <addressRange>0x08008020 - 0x0800FFFF</addressRange>
         </LinkerRegion>
+        <MemoryMap>
+                <slaveDescriptor>pio_wren</slaveDescriptor>
+                <addressRange>0x00009040 - 0x0000904F</addressRange>
+                <addressSpan>16</addressSpan>
+                <attributes/>
+        </MemoryMap>
+        <MemoryMap>
+                <slaveDescriptor>pio_ImgAddr</slaveDescriptor>
+                <addressRange>0x00009050 - 0x0000905F</addressRange>
+                <addressSpan>16</addressSpan>
+                <attributes/>
+        </MemoryMap>
+        <MemoryMap>
+                <slaveDescriptor>pio_camready</slaveDescriptor>
+                <addressRange>0x00009060 - 0x0000906F</addressRange>
+                <addressSpan>16</addressSpan>
+                <attributes/>
+        </MemoryMap>
+        <MemoryMap>
+                <slaveDescriptor>pio_pixeldata</slaveDescriptor>
+                <addressRange>0x00009070 - 0x0000907F</addressRange>
+                <addressSpan>16</addressSpan>
+                <attributes/>
+        </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>new_sdram_controller_0</slaveDescriptor>
                 <addressRange>0x04000000 - 0x07FFFFFF</addressRange>

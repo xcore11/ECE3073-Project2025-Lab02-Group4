@@ -4,7 +4,7 @@
  * Machine generated for CPU 'control_proc' in SOPC Builder design 'NIOSII_WEEK3'
  * SOPC Builder design path: ../../NIOSII_WEEK3.sopcinfo
  *
- * Generated: Mon Apr 20 20:51:00 SGT 2026
+ * Generated: Wed Apr 22 10:49:39 SGT 2026
  */
 
 /*
@@ -298,6 +298,60 @@
 
 
 /*
+ * pio_ImgAddr configuration
+ *
+ */
+
+#define ALT_MODULE_CLASS_pio_ImgAddr altera_avalon_pio
+#define PIO_IMGADDR_BASE 0x9050
+#define PIO_IMGADDR_BIT_CLEARING_EDGE_REGISTER 0
+#define PIO_IMGADDR_BIT_MODIFYING_OUTPUT_REGISTER 0
+#define PIO_IMGADDR_CAPTURE 0
+#define PIO_IMGADDR_DATA_WIDTH 17
+#define PIO_IMGADDR_DO_TEST_BENCH_WIRING 0
+#define PIO_IMGADDR_DRIVEN_SIM_VALUE 0
+#define PIO_IMGADDR_EDGE_TYPE "NONE"
+#define PIO_IMGADDR_FREQ 50000000
+#define PIO_IMGADDR_HAS_IN 0
+#define PIO_IMGADDR_HAS_OUT 1
+#define PIO_IMGADDR_HAS_TRI 0
+#define PIO_IMGADDR_IRQ -1
+#define PIO_IMGADDR_IRQ_INTERRUPT_CONTROLLER_ID -1
+#define PIO_IMGADDR_IRQ_TYPE "NONE"
+#define PIO_IMGADDR_NAME "/dev/pio_ImgAddr"
+#define PIO_IMGADDR_RESET_VALUE 0
+#define PIO_IMGADDR_SPAN 16
+#define PIO_IMGADDR_TYPE "altera_avalon_pio"
+
+
+/*
+ * pio_camready configuration
+ *
+ */
+
+#define ALT_MODULE_CLASS_pio_camready altera_avalon_pio
+#define PIO_CAMREADY_BASE 0x9060
+#define PIO_CAMREADY_BIT_CLEARING_EDGE_REGISTER 0
+#define PIO_CAMREADY_BIT_MODIFYING_OUTPUT_REGISTER 0
+#define PIO_CAMREADY_CAPTURE 0
+#define PIO_CAMREADY_DATA_WIDTH 1
+#define PIO_CAMREADY_DO_TEST_BENCH_WIRING 0
+#define PIO_CAMREADY_DRIVEN_SIM_VALUE 0
+#define PIO_CAMREADY_EDGE_TYPE "NONE"
+#define PIO_CAMREADY_FREQ 50000000
+#define PIO_CAMREADY_HAS_IN 1
+#define PIO_CAMREADY_HAS_OUT 0
+#define PIO_CAMREADY_HAS_TRI 0
+#define PIO_CAMREADY_IRQ -1
+#define PIO_CAMREADY_IRQ_INTERRUPT_CONTROLLER_ID -1
+#define PIO_CAMREADY_IRQ_TYPE "NONE"
+#define PIO_CAMREADY_NAME "/dev/pio_camready"
+#define PIO_CAMREADY_RESET_VALUE 0
+#define PIO_CAMREADY_SPAN 16
+#define PIO_CAMREADY_TYPE "altera_avalon_pio"
+
+
+/*
  * pio_gpio configuration
  *
  */
@@ -568,6 +622,33 @@
 
 
 /*
+ * pio_pixeldata configuration
+ *
+ */
+
+#define ALT_MODULE_CLASS_pio_pixeldata altera_avalon_pio
+#define PIO_PIXELDATA_BASE 0x9070
+#define PIO_PIXELDATA_BIT_CLEARING_EDGE_REGISTER 0
+#define PIO_PIXELDATA_BIT_MODIFYING_OUTPUT_REGISTER 0
+#define PIO_PIXELDATA_CAPTURE 0
+#define PIO_PIXELDATA_DATA_WIDTH 4
+#define PIO_PIXELDATA_DO_TEST_BENCH_WIRING 0
+#define PIO_PIXELDATA_DRIVEN_SIM_VALUE 0
+#define PIO_PIXELDATA_EDGE_TYPE "NONE"
+#define PIO_PIXELDATA_FREQ 50000000
+#define PIO_PIXELDATA_HAS_IN 0
+#define PIO_PIXELDATA_HAS_OUT 1
+#define PIO_PIXELDATA_HAS_TRI 0
+#define PIO_PIXELDATA_IRQ -1
+#define PIO_PIXELDATA_IRQ_INTERRUPT_CONTROLLER_ID -1
+#define PIO_PIXELDATA_IRQ_TYPE "NONE"
+#define PIO_PIXELDATA_NAME "/dev/pio_pixeldata"
+#define PIO_PIXELDATA_RESET_VALUE 0
+#define PIO_PIXELDATA_SPAN 16
+#define PIO_PIXELDATA_TYPE "altera_avalon_pio"
+
+
+/*
  * pio_speaker configuration
  *
  */
@@ -646,6 +727,33 @@
 #define PIO_SW_RESET_VALUE 0
 #define PIO_SW_SPAN 16
 #define PIO_SW_TYPE "altera_avalon_pio"
+
+
+/*
+ * pio_wren configuration
+ *
+ */
+
+#define ALT_MODULE_CLASS_pio_wren altera_avalon_pio
+#define PIO_WREN_BASE 0x9040
+#define PIO_WREN_BIT_CLEARING_EDGE_REGISTER 0
+#define PIO_WREN_BIT_MODIFYING_OUTPUT_REGISTER 0
+#define PIO_WREN_CAPTURE 0
+#define PIO_WREN_DATA_WIDTH 1
+#define PIO_WREN_DO_TEST_BENCH_WIRING 0
+#define PIO_WREN_DRIVEN_SIM_VALUE 0
+#define PIO_WREN_EDGE_TYPE "NONE"
+#define PIO_WREN_FREQ 50000000
+#define PIO_WREN_HAS_IN 0
+#define PIO_WREN_HAS_OUT 1
+#define PIO_WREN_HAS_TRI 0
+#define PIO_WREN_IRQ -1
+#define PIO_WREN_IRQ_INTERRUPT_CONTROLLER_ID -1
+#define PIO_WREN_IRQ_TYPE "NONE"
+#define PIO_WREN_NAME "/dev/pio_wren"
+#define PIO_WREN_RESET_VALUE 0
+#define PIO_WREN_SPAN 16
+#define PIO_WREN_TYPE "altera_avalon_pio"
 
 
 /*

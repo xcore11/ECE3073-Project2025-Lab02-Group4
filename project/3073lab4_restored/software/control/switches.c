@@ -1,5 +1,4 @@
 #include "switches.h"
-#include "speaker.h"
 #include "system.h"
 #include "altera_avalon_pio_regs.h"
 #include <stdio.h>
