@@ -26,15 +26,31 @@ ECE3073-Project2025-Lab02-Group4/
 │-- README.md        # Documentation and/or instructions
 
 ```
-
 ## Getting Started
 # What You'll Need:
+1. A DE10-Lite board with cable
+2. Breadboard
+3. Groove AI Vision 2
+4. 5MP OV5647 Camera Module for Raspberry Pi with camera ribbon
+5. Crow-tail speaker
+6. LED Module
+
+# Ensure you have the software downloaded as well
+1. Nios II Software Build Tools for Eclipse [Instruction Guide here](https://www.terasic.com.tw/wiki/Getting_Start_Install_Eclipse_IDE_into_Nios_EDS)
+2. Quartus Programmer Prime Lite [Installation Here](https://www.intel.com/content/www/us/en/collections/products/fpga/software/downloads.html)
+
+## Steps to operate the device
+# Software
 1. Clone the repository:
    ```sh
    git clone https://github.com/ece3073-monash/project-templates.git
    ```
 2. Copy files .gitignore and template files in your project directory.
 3. M1 and M2 are template files, the current Milestone is updated and stashed on their respective files after demo under 'project' file. A new project file is created after each demo.
+
+# Hardware
+1. Follow the pinout connection as shown below:
+   ![alt_text](https://imgur.com/a/VrLGbXJ)
 
 ## Roadmap
 ### Milestone 1: VGA Controller
