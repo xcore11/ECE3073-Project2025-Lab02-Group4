@@ -2,8 +2,8 @@
 <sch:Settings xmlns:sch="http://www.altera.com/embeddedsw/bsp/schema">
         <BspType>hal</BspType>
         <BspVersion>default</BspVersion>
-        <BspGeneratedTimeStamp>Apr 22, 2026 10:52:02 AM</BspGeneratedTimeStamp>
-        <BspGeneratedUnixTimeStamp>1776826322194</BspGeneratedUnixTimeStamp>
+        <BspGeneratedTimeStamp>May 1, 2026 4:08:40 AM</BspGeneratedTimeStamp>
+        <BspGeneratedUnixTimeStamp>1777579720320</BspGeneratedUnixTimeStamp>
         <BspGeneratedLocation>C:\temp\ECE3073-Project2025-Lab02-Group4\project\3073lab4_restored\software\control_bsp</BspGeneratedLocation>
         <BspSettingsFile>settings.bsp</BspSettingsFile>
         <SopcDesignFile>..\..\NIOSII_WEEK3.sopcinfo</SopcDesignFile>
@@ -194,7 +194,7 @@
                 <SettingName>hal.stdin</SettingName>
                 <Identifier>none</Identifier>
                 <Type>UnquotedString</Type>
-                <Value>jtag_uart_0</Value>
+                <Value>jtag_control</Value>
                 <DefaultValue>none</DefaultValue>
                 <DestinationFile>system_h_define</DestinationFile>
                 <Description>Slave descriptor of STDIN character-mode device. This setting is used by the ALT_STDIN family of defines in system.h.</Description>
@@ -206,7 +206,7 @@
                 <SettingName>hal.stdout</SettingName>
                 <Identifier>none</Identifier>
                 <Type>UnquotedString</Type>
-                <Value>jtag_uart_0</Value>
+                <Value>jtag_control</Value>
                 <DefaultValue>none</DefaultValue>
                 <DestinationFile>system_h_define</DestinationFile>
                 <Description>Slave descriptor of STDOUT character-mode device. This setting is used by the ALT_STDOUT family of defines in system.h.</Description>
@@ -218,7 +218,7 @@
                 <SettingName>hal.stderr</SettingName>
                 <Identifier>none</Identifier>
                 <Type>UnquotedString</Type>
-                <Value>jtag_uart_0</Value>
+                <Value>jtag_control</Value>
                 <DefaultValue>none</DefaultValue>
                 <DestinationFile>system_h_define</DestinationFile>
                 <Description>Slave descriptor of STDERR character-mode device. This setting is used by the ALT_STDERR family of defines in system.h.</Description>
@@ -890,7 +890,7 @@
                 <SettingName>altera_avalon_jtag_uart_driver.enable_jtag_uart_ignore_fifo_full_error</SettingName>
                 <Identifier>ALTERA_AVALON_JTAG_UART_IGNORE_FIFO_FULL_ERROR</Identifier>
                 <Type>BooleanDefineOnly</Type>
-                <Value>false</Value>
+                <Value>true</Value>
                 <DefaultValue>false</DefaultValue>
                 <DestinationFile>public_mk_define</DestinationFile>
                 <Description>Enable JTAG UART driver to recover when host is inactive causing buffer to full without returning error. Printf will not fail with this recovery.</Description>
@@ -901,158 +901,146 @@
         <LinkerRegion>
                 <regionName>new_sdram_controller_0</regionName>
                 <memoryName>new_sdram_controller_0</memoryName>
-                <offset>33554432</offset>
-                <size>33554432</size>
-                <baseAddress>0x6000000</baseAddress>
-                <addressRange>0x06000000 - 0x07FFFFFF</addressRange>
+                <offset>0</offset>
+                <size>1048576</size>
+                <baseAddress>0x0</baseAddress>
+                <addressRange>0x00000000 - 0x000FFFFF</addressRange>
         </LinkerRegion>
         <LinkerRegion>
                 <regionName>reset</regionName>
                 <memoryName>control_mem</memoryName>
                 <offset>0</offset>
                 <size>32</size>
-                <baseAddress>0x8008000</baseAddress>
-                <addressRange>0x08008000 - 0x0800801F</addressRange>
+                <baseAddress>0x4008000</baseAddress>
+                <addressRange>0x04008000 - 0x0400801F</addressRange>
         </LinkerRegion>
         <LinkerRegion>
                 <regionName>control_mem</regionName>
                 <memoryName>control_mem</memoryName>
                 <offset>32</offset>
                 <size>32736</size>
-                <baseAddress>0x8008020</baseAddress>
-                <addressRange>0x08008020 - 0x0800FFFF</addressRange>
+                <baseAddress>0x4008020</baseAddress>
+                <addressRange>0x04008020 - 0x0400FFFF</addressRange>
         </LinkerRegion>
         <MemoryMap>
-                <slaveDescriptor>pio_wren</slaveDescriptor>
-                <addressRange>0x00009040 - 0x0000904F</addressRange>
-                <addressSpan>16</addressSpan>
-                <attributes/>
-        </MemoryMap>
-        <MemoryMap>
-                <slaveDescriptor>pio_ImgAddr</slaveDescriptor>
-                <addressRange>0x00009050 - 0x0000905F</addressRange>
-                <addressSpan>16</addressSpan>
-                <attributes/>
-        </MemoryMap>
-        <MemoryMap>
-                <slaveDescriptor>pio_camready</slaveDescriptor>
-                <addressRange>0x00009060 - 0x0000906F</addressRange>
-                <addressSpan>16</addressSpan>
-                <attributes/>
-        </MemoryMap>
-        <MemoryMap>
-                <slaveDescriptor>pio_pixeldata</slaveDescriptor>
-                <addressRange>0x00009070 - 0x0000907F</addressRange>
-                <addressSpan>16</addressSpan>
-                <attributes/>
-        </MemoryMap>
-        <MemoryMap>
                 <slaveDescriptor>new_sdram_controller_0</slaveDescriptor>
-                <addressRange>0x04000000 - 0x07FFFFFF</addressRange>
+                <addressRange>0x00000000 - 0x03FFFFFF</addressRange>
                 <addressSpan>67108864</addressSpan>
                 <attributes>memory</attributes>
         </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>control_mem</slaveDescriptor>
-                <addressRange>0x08008000 - 0x0800FFFF</addressRange>
+                <addressRange>0x04008000 - 0x0400FFFF</addressRange>
                 <addressSpan>32768</addressSpan>
                 <attributes>memory</attributes>
         </MemoryMap>
         <MemoryMap>
-                <slaveDescriptor>spi_0</slaveDescriptor>
-                <addressRange>0x08011020 - 0x0801103F</addressRange>
-                <addressSpan>32</addressSpan>
+                <slaveDescriptor>con_vga_IRQ_rx</slaveDescriptor>
+                <addressRange>0x04011100 - 0x0401110F</addressRange>
+                <addressSpan>16</addressSpan>
+                <attributes/>
+        </MemoryMap>
+        <MemoryMap>
+                <slaveDescriptor>con_vga_IRQ_tx</slaveDescriptor>
+                <addressRange>0x04011110 - 0x0401111F</addressRange>
+                <addressSpan>16</addressSpan>
+                <attributes/>
+        </MemoryMap>
+        <MemoryMap>
+                <slaveDescriptor>con_img_IRQ_rx</slaveDescriptor>
+                <addressRange>0x04011120 - 0x0401112F</addressRange>
+                <addressSpan>16</addressSpan>
+                <attributes/>
+        </MemoryMap>
+        <MemoryMap>
+                <slaveDescriptor>con_img_IRQ_tx</slaveDescriptor>
+                <addressRange>0x04011130 - 0x0401113F</addressRange>
+                <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>pio_speaker</slaveDescriptor>
-                <addressRange>0x08011110 - 0x0801111F</addressRange>
+                <addressRange>0x04011140 - 0x0401114F</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>pio_led_module</slaveDescriptor>
-                <addressRange>0x08011120 - 0x0801112F</addressRange>
-                <addressSpan>16</addressSpan>
-                <attributes/>
-        </MemoryMap>
-        <MemoryMap>
-                <slaveDescriptor>pio_spi_select</slaveDescriptor>
-                <addressRange>0x08011130 - 0x0801113F</addressRange>
+                <addressRange>0x04011150 - 0x0401115F</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>pio_hex5</slaveDescriptor>
-                <addressRange>0x08011140 - 0x0801114F</addressRange>
+                <addressRange>0x04011160 - 0x0401116F</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>pio_hex4</slaveDescriptor>
-                <addressRange>0x08011150 - 0x0801115F</addressRange>
+                <addressRange>0x04011170 - 0x0401117F</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>pio_hex3</slaveDescriptor>
-                <addressRange>0x08011160 - 0x0801116F</addressRange>
+                <addressRange>0x04011180 - 0x0401118F</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>pio_hex2</slaveDescriptor>
-                <addressRange>0x08011170 - 0x0801117F</addressRange>
+                <addressRange>0x04011190 - 0x0401119F</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>pio_hex1</slaveDescriptor>
-                <addressRange>0x08011180 - 0x0801118F</addressRange>
+                <addressRange>0x040111A0 - 0x040111AF</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>pio_hex0</slaveDescriptor>
-                <addressRange>0x08011190 - 0x0801119F</addressRange>
+                <addressRange>0x040111B0 - 0x040111BF</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>pio_gpio</slaveDescriptor>
-                <addressRange>0x080111A0 - 0x080111AF</addressRange>
+                <addressRange>0x040111C0 - 0x040111CF</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>pio_pb</slaveDescriptor>
-                <addressRange>0x080111B0 - 0x080111BF</addressRange>
+                <addressRange>0x040111D0 - 0x040111DF</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>pio_sw</slaveDescriptor>
-                <addressRange>0x080111C0 - 0x080111CF</addressRange>
+                <addressRange>0x040111E0 - 0x040111EF</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>pio_led</slaveDescriptor>
-                <addressRange>0x080111D0 - 0x080111DF</addressRange>
+                <addressRange>0x040111F0 - 0x040111FF</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
-                <slaveDescriptor>jtag_uart_0</slaveDescriptor>
-                <addressRange>0x080111E8 - 0x080111EF</addressRange>
+                <slaveDescriptor>mutex_0</slaveDescriptor>
+                <addressRange>0x04011210 - 0x04011217</addressRange>
                 <addressSpan>8</addressSpan>
-                <attributes>printable</attributes>
+                <attributes/>
         </MemoryMap>
         <MemoryMap>
-                <slaveDescriptor>accelerometer_spi_0</slaveDescriptor>
-                <addressRange>0x080111F0 - 0x080111F1</addressRange>
-                <addressSpan>2</addressSpan>
-                <attributes/>
+                <slaveDescriptor>jtag_control</slaveDescriptor>
+                <addressRange>0x04011218 - 0x0401121F</addressRange>
+                <addressSpan>8</addressSpan>
+                <attributes>printable</attributes>
         </MemoryMap>
         <LinkerSection>
                 <sectionName>.text</sectionName>
