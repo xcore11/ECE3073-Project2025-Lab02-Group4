@@ -7,6 +7,7 @@
 
 volatile int switch_state = 0;
 volatile int key_state = 0;
+volatile int GPIO_state = 0;
 static int HEX_enable_bit = 0;
 static int scroll_counter = 0;
 static int scroll_offset = 0;
@@ -68,12 +69,66 @@ void key_setup(void) {
     key_state = IORD_ALTERA_AVALON_PIO_DATA(PIO_PB_BASE);
 }
 
+static void img_rx_isr(void* context) {
+    // Clear the edge capture register
+    IOWR_ALTERA_AVALON_PIO_EDGE_CAP(CON_IMG_IRQ_RX_BASE, 0x1);
+
+    // Resets the GPIO [0]
+    IOWR_ALTERA_AVALON_PIO_DATA(PIO_GPIO_BASE, (GPIO_state & 0x2));
+    GPIO_state = GPIO_state & 0x2;
+}
+
+void img_rx_setup(void) {
+    // Clear GPIO triggers
+    IOWR_ALTERA_AVALON_PIO_EDGE_CAP(CON_IMG_IRQ_RX_BASE, 0x1);
+
+    // Enable hardware interrupts
+    IOWR_ALTERA_AVALON_PIO_IRQ_MASK(CON_IMG_IRQ_RX_BASE, 0x1);
+
+    // Register the ISR with the processor
+    alt_ic_isr_register(
+    	CON_IMG_IRQ_RX_IRQ_INTERRUPT_CONTROLLER_ID,
+		CON_IMG_IRQ_RX_IRQ,
+        img_rx_isr,
+        NULL,
+        NULL
+    );
+}
+
+static void vga_rx_isr(void* context) {
+    // Clear the edge capture register
+    IOWR_ALTERA_AVALON_PIO_EDGE_CAP(CON_VGA_IRQ_RX_BASE, 0x1);
+
+    // Resets the GPIO [1]
+    IOWR_ALTERA_AVALON_PIO_DATA(PIO_GPIO_BASE, (GPIO_state & 0x1));
+    GPIO_state = GPIO_state & 0x1;
+}
+
+void vga_rx_setup(void) {
+    // Clear GPIO triggers
+    IOWR_ALTERA_AVALON_PIO_EDGE_CAP(CON_VGA_IRQ_RX_BASE, 0x1);
+
+    // Enable hardware interrupts
+    IOWR_ALTERA_AVALON_PIO_IRQ_MASK(CON_VGA_IRQ_RX_BASE, 0x1);
+
+    // Register the ISR with the processor
+    alt_ic_isr_register(
+    	CON_VGA_IRQ_RX_IRQ_INTERRUPT_CONTROLLER_ID,
+		CON_VGA_IRQ_RX_IRQ,
+        vga_rx_isr,
+        NULL,
+        NULL
+    );
+}
+
 void handle_key1(void)
 {
 	if ((~key_state) & 0x01)
 	{
 		IOWR_ALTERA_AVALON_PIO_DATA(CON_IMG_IRQ_TX_BASE, 0x1);
 		IOWR_ALTERA_AVALON_PIO_DATA(CON_IMG_IRQ_TX_BASE, 0x0);
+		GPIO_state = GPIO_state | 0x1;
+		IOWR_ALTERA_AVALON_PIO_DATA(PIO_GPIO_BASE, GPIO_state);
 		key_state = (key_state | 0x01);
 	}
 }
@@ -84,6 +139,8 @@ void handle_key2(void)
 	{
 		IOWR_ALTERA_AVALON_PIO_DATA(CON_VGA_IRQ_TX_BASE, 0x1);
 		IOWR_ALTERA_AVALON_PIO_DATA(CON_VGA_IRQ_TX_BASE, 0x0);
+		GPIO_state = GPIO_state | 0x2;
+		IOWR_ALTERA_AVALON_PIO_DATA(PIO_GPIO_BASE, GPIO_state);
 		key_state = (key_state | 0x02);
 	}
 }

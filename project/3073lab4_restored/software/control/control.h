@@ -31,6 +31,8 @@
 /* existing switch_key functions / HEX functions */
 void switch_setup(void);
 void key_setup(void);
+void img_rx_setup(void);
+void vga_rx_setup(void);
 void HEX_enable(void);
 void handle_key1(void);
 void handle_key2(void);

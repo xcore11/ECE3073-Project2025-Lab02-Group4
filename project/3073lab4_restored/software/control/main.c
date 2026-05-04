@@ -26,6 +26,8 @@ int main(void)
     // Setup the switch and key interrupts
     switch_setup();
     key_setup();
+    img_rx_setup();
+    vga_rx_setup();
 
     while (1)
     {
@@ -66,6 +68,6 @@ int main(void)
 
             traffic_counter = 0;
         }
-
+    }
     return 0;
 }
