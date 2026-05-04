@@ -1,17 +1,96 @@
-#include "switches.h"
 #include "system.h"
 #include "altera_avalon_pio_regs.h"
+#include "sys/alt_irq.h"
 #include <stdio.h>
 #include <string.h>
+#include "control.h"
 
+volatile int switch_state = 0;
+volatile int key_state = 0;
 static int HEX_enable_bit = 0;
 static int scroll_counter = 0;
 static int scroll_offset = 0;
 const int scroll_speed = 2000;
 
-void HEX_enable(int state)
+static void switch_isr(void* context) {
+    // Clear the edge capture register
+    IOWR_ALTERA_AVALON_PIO_EDGE_CAP(PIO_SW_BASE, 0xF);
+
+    // Updates the switch switch_state
+    switch_state = IORD_ALTERA_AVALON_PIO_DATA(PIO_SW_BASE);
+}
+
+void switch_setup(void) {
+    // Clear pending switch triggers
+    IOWR_ALTERA_AVALON_PIO_EDGE_CAP(PIO_SW_BASE, 0xF);
+
+    // Enable hardware interrupts
+    IOWR_ALTERA_AVALON_PIO_IRQ_MASK(PIO_SW_BASE, 0xF);
+
+    // Register the ISR with the processor
+    alt_ic_isr_register(
+        PIO_SW_IRQ_INTERRUPT_CONTROLLER_ID,
+        PIO_SW_IRQ,
+        switch_isr,
+        NULL,
+        NULL
+    );
+
+    // Setup initial switch switch_state
+    switch_state = IORD_ALTERA_AVALON_PIO_DATA(PIO_SW_BASE);
+}
+
+static void key_isr(void* context) {
+    // Clear the edge capture register
+    IOWR_ALTERA_AVALON_PIO_EDGE_CAP(PIO_PB_BASE, 0x3);
+
+    // Updates the key key_state
+    key_state = IORD_ALTERA_AVALON_PIO_DATA(PIO_PB_BASE);
+}
+
+void key_setup(void) {
+    // Clear pending key triggers
+    IOWR_ALTERA_AVALON_PIO_EDGE_CAP(PIO_PB_BASE, 0x3);
+
+    // Enable hardware interrupts
+    IOWR_ALTERA_AVALON_PIO_IRQ_MASK(PIO_PB_BASE, 0x3);
+
+    // Register the ISR with the processor
+    alt_ic_isr_register(
+        PIO_PB_IRQ_INTERRUPT_CONTROLLER_ID,
+        PIO_PB_IRQ,
+        key_isr,
+        NULL,
+        NULL
+    );
+
+    // Setup initial key key_state
+    key_state = IORD_ALTERA_AVALON_PIO_DATA(PIO_PB_BASE);
+}
+
+void handle_key1(void)
 {
-    if (state & 0x01) {
+	if ((~key_state) & 0x01)
+	{
+		IOWR_ALTERA_AVALON_PIO_DATA(CON_IMG_IRQ_TX_BASE, 0x1);
+		IOWR_ALTERA_AVALON_PIO_DATA(CON_IMG_IRQ_TX_BASE, 0x0);
+		key_state = (key_state | 0x01);
+	}
+}
+
+void handle_key2(void)
+{
+	if ((~key_state) & 0x02)
+	{
+		IOWR_ALTERA_AVALON_PIO_DATA(CON_VGA_IRQ_TX_BASE, 0x1);
+		IOWR_ALTERA_AVALON_PIO_DATA(CON_VGA_IRQ_TX_BASE, 0x0);
+		key_state = (key_state | 0x02);
+	}
+}
+
+void HEX_enable(void)
+{
+    if (switch_state & 0x01) {
         HEX_enable_bit = 1;
     } else {
         IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX0_BASE, 0xFF);
@@ -27,9 +106,9 @@ void HEX_enable(int state)
     }
 }
 
-void handle_switch2(int state, const char *message)
+void handle_switch2(const char *message)
 {
-    if ((state & 0x02) && HEX_enable_bit) {
+    if ((switch_state & 0x02) && HEX_enable_bit) {
         char padded_message[64];
         int msg_len;
 
@@ -71,9 +150,9 @@ void handle_switch2(int state, const char *message)
     }
 }
 
-void handle_switch3(int state)
+void handle_switch3(void)
 {
-    if ((state & 0x04) && HEX_enable_bit) {
+    if ((switch_state & 0x04) && HEX_enable_bit) {
         /* placeholder CPU utilization */
         IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX1_BASE, translator('8'));
         IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX0_BASE, translator('7'));
@@ -83,9 +162,9 @@ void handle_switch3(int state)
     }
 }
 
-void handle_switch4(int state)
+void handle_switch4(void)
 {
-	if (state & 0x08) {
+	if (switch_state & 0x08) {
 		play_speaker(1000, 1);
 	} else {
 		play_speaker(1000, 0);
