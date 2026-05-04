@@ -144,6 +144,7 @@ ELF := image.elf
 # Paths to C, C++, and assembly source files.
 C_SRCS += spi.c
 C_SRCS += main.c
+C_SRCS += decoder.c
 CXX_SRCS :=
 ASM_SRCS :=
 

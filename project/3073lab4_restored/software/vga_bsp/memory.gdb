@@ -3,7 +3,7 @@
 # Machine generated for CPU 'vga_proc' in SOPC Builder design 'NIOSII_WEEK3'
 # SOPC Builder design path: ../../NIOSII_WEEK3.sopcinfo
 #
-# Generated: Fri May 01 04:08:36 SGT 2026
+# Generated: Sat May 02 18:14:12 SGT 2026
 
 # DO NOT MODIFY THIS FILE
 #
@@ -46,8 +46,8 @@
 # The cache attribute is specified which improves GDB performance
 # by allowing GDB to cache memory contents on the host.
 
-# new_sdram_controller_0
-memory 0x0 0x4000000 cache
-
 # vga_mem
-memory 0x4004000 0x4008000 cache
+memory 0x4000 0x8000 cache
+
+# new_sdram_controller_0
+memory 0x4000000 0x8000000 cache

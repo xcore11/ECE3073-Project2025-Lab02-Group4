@@ -4,7 +4,7 @@
  * Machine generated for CPU 'vga_proc' in SOPC Builder design 'NIOSII_WEEK3'
  * SOPC Builder design path: ../../NIOSII_WEEK3.sopcinfo
  *
- * Generated: Fri May 01 04:08:36 SGT 2026
+ * Generated: Sat May 02 18:14:12 SGT 2026
  */
 
 /*
@@ -50,14 +50,14 @@
 
 MEMORY
 {
-    new_sdram_controller_0 : ORIGIN = 0x200000, LENGTH = 1048576
-    reset : ORIGIN = 0x4004000, LENGTH = 32
-    vga_mem : ORIGIN = 0x4004020, LENGTH = 16352
+    reset : ORIGIN = 0x4000, LENGTH = 32
+    vga_mem : ORIGIN = 0x4020, LENGTH = 16352
+    new_sdram_controller_0 : ORIGIN = 0x4200000, LENGTH = 1048576
 }
 
 /* Define symbols for each memory base-address */
-__alt_mem_new_sdram_controller_0 = 0x0;
-__alt_mem_vga_mem = 0x4004000;
+__alt_mem_vga_mem = 0x4000;
+__alt_mem_new_sdram_controller_0 = 0x4000000;
 
 OUTPUT_FORMAT( "elf32-littlenios2",
                "elf32-littlenios2",
@@ -316,7 +316,24 @@ SECTIONS
      *
      */
 
-    .new_sdram_controller_0 LOADADDR (.bss) + SIZEOF (.bss) : AT ( LOADADDR (.bss) + SIZEOF (.bss) )
+    .vga_mem : AT ( LOADADDR (.bss) + SIZEOF (.bss) )
+    {
+        PROVIDE (_alt_partition_vga_mem_start = ABSOLUTE(.));
+        *(.vga_mem .vga_mem. vga_mem.*)
+        . = ALIGN(4);
+        PROVIDE (_alt_partition_vga_mem_end = ABSOLUTE(.));
+    } > vga_mem
+
+    PROVIDE (_alt_partition_vga_mem_load_addr = LOADADDR(.vga_mem));
+
+    /*
+     *
+     * This section's LMA is set to the .text region.
+     * crt0 will copy to this section's specified mapped region virtual memory address (VMA)
+     *
+     */
+
+    .new_sdram_controller_0 LOADADDR (.vga_mem) + SIZEOF (.vga_mem) : AT ( LOADADDR (.vga_mem) + SIZEOF (.vga_mem) )
     {
         PROVIDE (_alt_partition_new_sdram_controller_0_start = ABSOLUTE(.));
         *(.new_sdram_controller_0 .new_sdram_controller_0. new_sdram_controller_0.*)
@@ -328,23 +345,6 @@ SECTIONS
     } > new_sdram_controller_0
 
     PROVIDE (_alt_partition_new_sdram_controller_0_load_addr = LOADADDR(.new_sdram_controller_0));
-
-    /*
-     *
-     * This section's LMA is set to the .text region.
-     * crt0 will copy to this section's specified mapped region virtual memory address (VMA)
-     *
-     */
-
-    .vga_mem : AT ( LOADADDR (.new_sdram_controller_0) + SIZEOF (.new_sdram_controller_0) )
-    {
-        PROVIDE (_alt_partition_vga_mem_start = ABSOLUTE(.));
-        *(.vga_mem .vga_mem. vga_mem.*)
-        . = ALIGN(4);
-        PROVIDE (_alt_partition_vga_mem_end = ABSOLUTE(.));
-    } > vga_mem
-
-    PROVIDE (_alt_partition_vga_mem_load_addr = LOADADDR(.vga_mem));
 
     /*
      * Stabs debugging sections.
@@ -393,7 +393,7 @@ SECTIONS
 /*
  * Don't override this, override the __alt_stack_* symbols instead.
  */
-__alt_data_end = 0x300000;
+__alt_data_end = 0x4300000;
 
 /*
  * The next two symbols define the location of the default stack.  You can
@@ -409,4 +409,4 @@ PROVIDE( __alt_stack_limit   = __alt_stack_base );
  * Override this symbol to put the heap in a different memory.
  */
 PROVIDE( __alt_heap_start    = end );
-PROVIDE( __alt_heap_limit    = 0x300000 );
+PROVIDE( __alt_heap_limit    = 0x4300000 );

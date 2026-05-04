@@ -16,6 +16,7 @@
 
 int main(void)
 {
+	printf("SPI dummy byte test started\n");
 	// Input Para
     int switch_state = 0;
     int key_state = 0;
