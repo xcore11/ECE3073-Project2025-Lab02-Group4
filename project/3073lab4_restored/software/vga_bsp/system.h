@@ -4,7 +4,7 @@
  * Machine generated for CPU 'vga_proc' in SOPC Builder design 'NIOSII_WEEK3'
  * SOPC Builder design path: ../../NIOSII_WEEK3.sopcinfo
  *
- * Generated: Sun May 03 19:40:49 SGT 2026
+ * Generated: Tue May 05 17:09:12 SGT 2026
  */
 
 /*
@@ -403,18 +403,18 @@
 #define VGA_IRQ_RX_BASE 0x9060
 #define VGA_IRQ_RX_BIT_CLEARING_EDGE_REGISTER 0
 #define VGA_IRQ_RX_BIT_MODIFYING_OUTPUT_REGISTER 0
-#define VGA_IRQ_RX_CAPTURE 0
+#define VGA_IRQ_RX_CAPTURE 1
 #define VGA_IRQ_RX_DATA_WIDTH 1
 #define VGA_IRQ_RX_DO_TEST_BENCH_WIRING 0
 #define VGA_IRQ_RX_DRIVEN_SIM_VALUE 0
-#define VGA_IRQ_RX_EDGE_TYPE "NONE"
+#define VGA_IRQ_RX_EDGE_TYPE "RISING"
 #define VGA_IRQ_RX_FREQ 50000000
 #define VGA_IRQ_RX_HAS_IN 1
 #define VGA_IRQ_RX_HAS_OUT 0
 #define VGA_IRQ_RX_HAS_TRI 0
 #define VGA_IRQ_RX_IRQ 1
 #define VGA_IRQ_RX_IRQ_INTERRUPT_CONTROLLER_ID 0
-#define VGA_IRQ_RX_IRQ_TYPE "LEVEL"
+#define VGA_IRQ_RX_IRQ_TYPE "EDGE"
 #define VGA_IRQ_RX_NAME "/dev/vga_IRQ_rx"
 #define VGA_IRQ_RX_RESET_VALUE 0
 #define VGA_IRQ_RX_SPAN 16

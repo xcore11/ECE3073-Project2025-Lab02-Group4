@@ -319,7 +319,7 @@ static int store_text_and_metadata_from_packet(uint32_t packet_len)
 #define SPI_LEN_READ_BYTES          8
 #define SPI_PACKET_READ_EXTRA_BYTES 4
 
-#define SPI_LENGTH_RETRY_COUNT      20
+#define SPI_LENGTH_RETRY_COUNT      40
 #define SPI_LENGTH_RETRY_DELAY_US   500000
 #define SPI_ESP_QUEUE_DELAY_US      2000
 #define SPI_CAPTURE_WAIT_US         5000000

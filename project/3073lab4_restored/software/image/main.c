@@ -4,65 +4,96 @@
 #include "io.h"
 #include "system.h"
 #include "altera_avalon_pio_regs.h"
+#include "sys/alt_irq.h"
+
 #include "spi.h"
-
-/*
-   IMG_IRQ_RX_BASE must be the PIO base connected to the image/trigger IRQ signal.
-
-   Expected behavior:
-   - IMG_IRQ_RX_BASE reads 0 when no request is present
-   - IMG_IRQ_RX_BASE reads non-zero when the image/trigger processor requests SPI capture
-
-   This code triggers SPI only on the rising edge:
-   0 -> 1 causes one spi_request_text_from_esp()
-   staying 1 does not repeatedly trigger
-   it must return to 0 before the next trigger can be accepted
-*/
 
 #define IMG_IRQ_ACTIVE_MASK 0x01
 
-static int img_irq_is_active(void)
+static volatile unsigned int trigger_count = 0;
+static volatile int img_irq_pending = 0;
+
+static void img_irq_rx_isr(void* context)
 {
-    return (IORD_ALTERA_AVALON_PIO_DATA(IMG_IRQ_RX_BASE) & IMG_IRQ_ACTIVE_MASK) != 0;
+    /*
+       Clear/acknowledge PIO edge interrupt.
+    */
+    IOWR_ALTERA_AVALON_PIO_EDGE_CAP(IMG_IRQ_RX_BASE, IMG_IRQ_ACTIVE_MASK);
+
+    /*
+       Tell main loop to do the slow work.
+    */
+    img_irq_pending = 1;
+}
+
+static void img_irq_rx_setup(void)
+{
+    /*
+       Disable first while configuring.
+    */
+    IOWR_ALTERA_AVALON_PIO_IRQ_MASK(IMG_IRQ_RX_BASE, 0x0);
+
+    /*
+       Clear pending edge capture.
+    */
+    IOWR_ALTERA_AVALON_PIO_EDGE_CAP(IMG_IRQ_RX_BASE, IMG_IRQ_ACTIVE_MASK);
+
+    /*
+       Register ISR.
+    */
+    alt_ic_isr_register(
+        IMG_IRQ_RX_IRQ_INTERRUPT_CONTROLLER_ID,
+        IMG_IRQ_RX_IRQ,
+        img_irq_rx_isr,
+        NULL,
+        NULL
+    );
+
+    /*
+       Clear again after registering, then enable.
+    */
+    IOWR_ALTERA_AVALON_PIO_EDGE_CAP(IMG_IRQ_RX_BASE, IMG_IRQ_ACTIVE_MASK);
+    IOWR_ALTERA_AVALON_PIO_IRQ_MASK(IMG_IRQ_RX_BASE, IMG_IRQ_ACTIVE_MASK);
 }
 
 int main(void)
 {
-    int img_irq_now = 0;
-    int img_irq_prev = 0;
-    unsigned int trigger_count = 0;
-
     printf("FPGA SPI DMA-ESP integration test started\n");
-    printf("Flow: IMG_IRQ_RX rising edge -> 0x5F trigger -> wait/read 0xA1 length -> read 0xA2 packet -> store in SDRAM\n");
-    printf("Waiting for IMG_IRQ_RX_BASE trigger...\n");
+    printf("Setting up SPI and IMG_IRQ_RX interrupt...\n");
     fflush(stdout);
 
     spi_init_manual();
+    img_irq_rx_setup();
+
+    printf("Ready. Waiting for IMG_IRQ_RX interrupt...\n");
+    fflush(stdout);
 
     while (1)
     {
-        img_irq_now = img_irq_is_active();
-
-        /* Rising edge detect: only trigger once when IRQ changes 0 -> 1 */
-        if ((img_irq_now != 0) && (img_irq_prev == 0))
+        if (img_irq_pending)
         {
+            img_irq_pending = 0;
             trigger_count++;
 
-            printf("\n========== IMG IRQ RECEIVED ==========" "\n");
-            printf("IMG_IRQ_RX rising edge detected, trigger_count=%u\n", trigger_count);
-            printf("Starting ESP SPI capture/read transaction...\n");
+            printf("interrupted, trigger_count=%u\n", trigger_count);
             fflush(stdout);
 
             spi_request_text_from_esp();
 
-            printf("ESP SPI transaction finished. Waiting for IMG_IRQ_RX to return low...\n");
-            fflush(stdout);
+            /*
+               Optional: wait until the trigger signal goes low before accepting another.
+               This prevents repeated handling while the source is still high.
+            */
+            while ((IORD_ALTERA_AVALON_PIO_DATA(IMG_IRQ_RX_BASE) & IMG_IRQ_ACTIVE_MASK) != 0)
+            {
+                usleep(1000);
+            }
+
+            /*
+               Clear any edge that happened while SPI was running.
+            */
+            IOWR_ALTERA_AVALON_PIO_EDGE_CAP(IMG_IRQ_RX_BASE, IMG_IRQ_ACTIVE_MASK);
         }
-
-        img_irq_prev = img_irq_now;
-
-        /* Small poll delay only to avoid burning CPU completely. */
-        usleep(1000);
     }
 
     return 0;

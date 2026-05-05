@@ -135,6 +135,15 @@ volatile uint32_t spiIgnoredCounter = 0;
 #define MIN_CANDIDATE_CHARS 2
 #define MAX_CONSECUTIVE_INVOKE_FAILS 2
 
+/*
+   AI confidence filter.
+   Seeed SSCMA boxes expose .score.
+   Only boxes with score >= MIN_BOX_CONFIDENCE are accepted.
+   Typical SSCMA Arduino score is an integer, often 0..100.
+   Set lower if too many characters disappear.
+*/
+#define MIN_BOX_CONFIDENCE 50
+
 #define MAX_VISIBLE_ROWS 20
 #define MAX_PASSAGE_ROWS 120
 
@@ -156,6 +165,7 @@ volatile uint32_t spiIgnoredCounter = 0;
 
 struct CharBox {
     int target;
+    int score;
     int x;
     int y;
     int w;
@@ -512,25 +522,34 @@ bool tryUseRowAsCalibration(DetectedRow row)
 
 int extractDetectedRows(DetectedRow detectedRows[], int maxRowsOut)
 {
-    int boxCount = AI.boxes().size();
+    int rawBoxCount = AI.boxes().size();
 
-    if (boxCount <= 0) {
+    if (rawBoxCount <= 0) {
         return 0;
     }
 
-    if (boxCount > MAX_BOXES) {
-        boxCount = MAX_BOXES;
+    CharBox boxes[MAX_BOXES];
+    int boxCount = 0;
+
+    for (int i = 0; i < rawBoxCount && boxCount < MAX_BOXES; i++) {
+        int score = AI.boxes()[i].score;
+
+        if (score < MIN_BOX_CONFIDENCE) {
+            continue;
+        }
+
+        boxes[boxCount].target = AI.boxes()[i].target;
+        boxes[boxCount].score  = score;
+        boxes[boxCount].x = AI.boxes()[i].x;
+        boxes[boxCount].y = AI.boxes()[i].y;
+        boxes[boxCount].w = AI.boxes()[i].w;
+        boxes[boxCount].h = AI.boxes()[i].h;
+        boxes[boxCount].c = decodeChar(boxes[boxCount].target);
+        boxCount++;
     }
 
-    CharBox boxes[MAX_BOXES];
-
-    for (int i = 0; i < boxCount; i++) {
-        boxes[i].target = AI.boxes()[i].target;
-        boxes[i].x = AI.boxes()[i].x;
-        boxes[i].y = AI.boxes()[i].y;
-        boxes[i].w = AI.boxes()[i].w;
-        boxes[i].h = AI.boxes()[i].h;
-        boxes[i].c = decodeChar(boxes[i].target);
+    if (boxCount <= 0) {
+        return 0;
     }
 
     sortByY(boxes, boxCount);
@@ -646,6 +665,175 @@ bool frozenPassageAlreadyHas(String text)
 
     for (int i = 0; i < frozenPassageRowCount; i++) {
         if (frozenPassageRows[i] == text) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+String normalizeRowForCompare(String text)
+{
+    /*
+       For duplicate checking only:
+       - lowercase
+       - remove spaces/punctuation
+       - keep only letters/numbers
+
+       Examples:
+         "red led"  -> "redled"
+         "ed led"   -> "edled"
+         "module b" -> "moduleb"
+    */
+    text = cleanSlottedText(text);
+    text.toLowerCase();
+
+    String out = "";
+
+    for (int i = 0; i < text.length(); i++) {
+        char c = text[i];
+
+        if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) {
+            out += c;
+        }
+    }
+
+    return out;
+}
+
+bool isCalibrationLikeText(String text)
+{
+    String n = normalizeRowForCompare(text);
+    String expected = normalizeRowForCompare(buildExpectedCalibrationLine());
+
+    if (n.length() == 0) {
+        return false;
+    }
+
+    if (n == expected) {
+        return true;
+    }
+
+    /*
+       When START321 is already moving out of frame, OCR often sees:
+         start32, tart321, sart32, art32, smart321, etc.
+       These must never become instruction rows.
+    */
+    if (n.indexOf("start") >= 0) {
+        return true;
+    }
+
+    if (n.indexOf("tart") >= 0 && n.indexOf("3") >= 0) {
+        return true;
+    }
+
+    if (n.indexOf("art") >= 0 && n.indexOf("3") >= 0) {
+        return true;
+    }
+
+    return false;
+}
+
+int limitedEditDistance(String a, String b, int limit)
+{
+    int la = a.length();
+    int lb = b.length();
+
+    if (abs(la - lb) > limit) {
+        return limit + 1;
+    }
+
+    const int MAX_COMPARE_LEN = 32;
+
+    if (la > MAX_COMPARE_LEN || lb > MAX_COMPARE_LEN) {
+        return limit + 1;
+    }
+
+    int prev[MAX_COMPARE_LEN + 1];
+    int curr[MAX_COMPARE_LEN + 1];
+
+    for (int j = 0; j <= lb; j++) {
+        prev[j] = j;
+    }
+
+    for (int i = 1; i <= la; i++) {
+        curr[0] = i;
+        int rowMin = curr[0];
+
+        for (int j = 1; j <= lb; j++) {
+            int cost = (a[i - 1] == b[j - 1]) ? 0 : 1;
+
+            int delCost = prev[j] + 1;
+            int insCost = curr[j - 1] + 1;
+            int subCost = prev[j - 1] + cost;
+
+            int best = delCost;
+            if (insCost < best) best = insCost;
+            if (subCost < best) best = subCost;
+
+            curr[j] = best;
+            if (best < rowMin) rowMin = best;
+        }
+
+        if (rowMin > limit) {
+            return limit + 1;
+        }
+
+        for (int j = 0; j <= lb; j++) {
+            prev[j] = curr[j];
+        }
+    }
+
+    return prev[lb];
+}
+
+bool isSimilarToFrozenPassageRow(String text, String *matchedRow)
+{
+    String n = normalizeRowForCompare(text);
+
+    if (n.length() < 3) {
+        return false;
+    }
+
+    for (int i = 0; i < frozenPassageRowCount; i++) {
+        String existing = frozenPassageRows[i];
+        String e = normalizeRowForCompare(existing);
+
+        if (e.length() < 3) {
+            continue;
+        }
+
+        if (n == e) {
+            if (matchedRow != NULL) *matchedRow = existing;
+            return true;
+        }
+
+        /*
+           Catch partial edge reads:
+             redled  vs edled
+             moduleb vs oduleb
+             linking vs inking
+             every5  vs very5
+        */
+        if (n.length() >= 4 && e.indexOf(n) >= 0) {
+            if (matchedRow != NULL) *matchedRow = existing;
+            return true;
+        }
+
+        if (e.length() >= 4 && n.indexOf(e) >= 0) {
+            if (matchedRow != NULL) *matchedRow = existing;
+            return true;
+        }
+
+        int maxLen = (n.length() > e.length()) ? n.length() : e.length();
+        int limit = 1;
+
+        if (maxLen >= 8) {
+            limit = 2;
+        }
+
+        if (limitedEditDistance(n, e, limit) <= limit) {
+            if (matchedRow != NULL) *matchedRow = existing;
             return true;
         }
     }
@@ -807,23 +995,38 @@ void freezeRow(int trackerIndex)
     }
 
     /*
-       Ignore calibration row.
+       Ignore calibration row and partial START321 edge reads.
     */
-    if (finalRowText == buildExpectedCalibrationLine()) {
+    if (isCalibrationLikeText(finalRowText)) {
         rowTrackers[trackerIndex].frozen = true;
         rowTrackers[trackerIndex].frozenText = finalRowText;
 
-        Serial.print("Calibration row ignored from passage: ");
+        Serial.print("Calibration-like row ignored from passage: ");
         Serial.println(finalRowText);
         return;
     }
 
     /*
-       Avoid duplicate frozen passage rows.
+       Avoid exact and fuzzy duplicate frozen passage rows.
+       This prevents the same scrolling physical line from being saved again
+       when OCR loses an edge character, for example:
+         red led -> ed led
+         module b -> odule b
+         linking -> inking
     */
-    if (frozenPassageAlreadyHas(finalRowText)) {
-        Serial.print("Frozen duplicate ignored: ");
-        Serial.println(finalRowText);
+    String matchedRow = "";
+
+    if (frozenPassageAlreadyHas(finalRowText) ||
+        isSimilarToFrozenPassageRow(finalRowText, &matchedRow)) {
+        Serial.print("Frozen duplicate/similar ignored: ");
+        Serial.print(finalRowText);
+
+        if (matchedRow.length() > 0) {
+            Serial.print(" ~= ");
+            Serial.print(matchedRow);
+        }
+
+        Serial.println();
 
         rowTrackers[trackerIndex].frozen = true;
         rowTrackers[trackerIndex].frozenText = finalRowText;
@@ -873,9 +1076,9 @@ void updateRowTrackerWithDetectedRow(DetectedRow detected)
 
     /*
        If the calibration row appears again during scrolling,
-       ignore it.
+       including partial START321 edge reads, ignore it.
     */
-    if (text == buildExpectedCalibrationLine()) {
+    if (isCalibrationLikeText(text)) {
         return;
     }
 
@@ -1035,11 +1238,105 @@ String buildFullPassageWithNewlines()
     return passage;
 }
 
+bool isAlphaString(String text)
+{
+    if (text.length() == 0) {
+        return false;
+    }
+
+    for (int i = 0; i < text.length(); i++) {
+        char c = text[i];
+
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'))) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+String getLastToken(String text)
+{
+    text = cleanSlottedText(text);
+
+    int endIndex = text.length() - 1;
+
+    while (endIndex >= 0 && text[endIndex] == ' ') {
+        endIndex--;
+    }
+
+    if (endIndex < 0) {
+        return "";
+    }
+
+    int startIndex = endIndex;
+
+    while (startIndex >= 0 && text[startIndex] != ' ') {
+        startIndex--;
+    }
+
+    return text.substring(startIndex + 1, endIndex + 1);
+}
+
+String getFirstToken(String text)
+{
+    text = cleanSlottedText(text);
+
+    int startIndex = 0;
+
+    while (startIndex < text.length() && text[startIndex] == ' ') {
+        startIndex++;
+    }
+
+    int endIndex = startIndex;
+
+    while (endIndex < text.length() && text[endIndex] != ' ') {
+        endIndex++;
+    }
+
+    return text.substring(startIndex, endIndex);
+}
+
+bool shouldJoinRowsWithoutSpace(String currentPassage, String nextRow)
+{
+    /*
+       Newline does NOT automatically mean a space.
+
+       Example from the scrolling display:
+         row N   = "module b"
+         row N+1 = "linking"
+
+       This should become:
+         "module blinking"
+
+       not:
+         "module b linking"
+
+       Heuristic: if the previous last token is a tiny alphabetic fragment
+       such as "b" and the next row starts with a longer alphabetic token,
+       concatenate directly.
+    */
+    String lastToken = getLastToken(currentPassage);
+    String firstToken = getFirstToken(nextRow);
+
+    if (!isAlphaString(lastToken) || !isAlphaString(firstToken)) {
+        return false;
+    }
+
+    if (lastToken.length() <= 2 && firstToken.length() >= 3) {
+        return true;
+    }
+
+    return false;
+}
+
 String buildFullPassageForSpiSpaces()
 {
     /*
-       For FPGA/VGA side, keep the whole instruction as one sentence.
-       Rows are joined with spaces, not newline characters.
+       For FPGA/VGA side, keep the instruction as one sentence, but do not
+       blindly insert a space for every OCR row break. Some words are split
+       across rows by the scrolling display, for example:
+         "module b" + "linking" -> "module blinking"
     */
     String passage = "";
 
@@ -1051,11 +1348,14 @@ String buildFullPassageForSpiSpaces()
             continue;
         }
 
-        if (passage.length() > 0) {
+        if (passage.length() == 0) {
+            passage = row;
+        } else if (shouldJoinRowsWithoutSpace(passage, row)) {
+            passage += row;
+        } else {
             passage += " ";
+            passage += row;
         }
-
-        passage += row;
     }
 
     passage.toLowerCase();
