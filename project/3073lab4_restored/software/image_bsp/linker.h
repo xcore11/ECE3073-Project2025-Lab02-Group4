@@ -4,7 +4,7 @@
  * Machine generated for CPU 'image_proc' in SOPC Builder design 'NIOSII_WEEK3'
  * SOPC Builder design path: ../../NIOSII_WEEK3.sopcinfo
  *
- * Generated: Sat May 02 18:14:17 SGT 2026
+ * Generated: Mon May 04 21:48:19 SGT 2026
  */
 
 /*
@@ -67,7 +67,7 @@
 
 #define IMAGE_MEM_REGION_BASE 0x4020
 #define IMAGE_MEM_REGION_SPAN 16352
-#define NEW_SDRAM_CONTROLLER_0_REGION_BASE 0x4100000
+#define NEW_SDRAM_CONTROLLER_0_REGION_BASE 0x4200000
 #define NEW_SDRAM_CONTROLLER_0_REGION_SPAN 1048576
 #define RESET_REGION_BASE 0x4000
 #define RESET_REGION_SPAN 32

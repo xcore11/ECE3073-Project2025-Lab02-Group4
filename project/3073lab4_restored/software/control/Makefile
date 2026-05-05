@@ -143,9 +143,9 @@ ELF := control.elf
 
 # Paths to C, C++, and assembly source files.
 C_SRCS += main.c
-C_SRCS += switches.c
 C_SRCS += speaker.c
 C_SRCS += traffc_led.c
+C_SRCS += switches_key.c
 CXX_SRCS :=
 ASM_SRCS :=
 

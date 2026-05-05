@@ -1,13 +1,85 @@
-#include "switches.h"
 #include "system.h"
 #include "altera_avalon_pio_regs.h"
+#include "sys/alt_irq.h"
 #include <stdio.h>
 #include <string.h>
-
+#include "control.h"
+#define CON_IMG_IRQ_TX_BASE 0x8011130
+#define CON_IMG_IRQ_RX_BASE 0x8011120
+#define CON_VGA_IRQ_TX_BASE 0x8011110
+#define CON_VGA_IRQ_RX_BASE 0x8011100
+volatile int switch_state = 0;
+volatile int key_state = 0;
+volatile int GPIO_state = 0;
 static int HEX_enable_bit = 0;
 static int scroll_counter = 0;
 static int scroll_offset = 0;
 const int scroll_speed = 2000;
+volatile int key_events = 0;
+void handle_key1(void)
+{
+    if (key_events & 0x01)
+    {
+        key_events &= ~0x01;
+
+        printf("KEY1 pressed\n");
+
+        IOWR_ALTERA_AVALON_PIO_DATA(CON_IMG_IRQ_TX_BASE, 1);
+        IOWR_ALTERA_AVALON_PIO_DATA(CON_IMG_IRQ_TX_BASE, 0);
+
+        GPIO_state |= 0x01;
+        IOWR_ALTERA_AVALON_PIO_DATA(PIO_GPIO_BASE, GPIO_state);
+    }
+}
+
+void handle_key2(void)
+{
+    if (key_events & 0x02)
+    {
+        key_events &= ~0x02;
+
+        printf("KEY2 pressed\n");
+
+        IOWR_ALTERA_AVALON_PIO_DATA(CON_VGA_IRQ_TX_BASE, 1);
+        IOWR_ALTERA_AVALON_PIO_DATA(CON_VGA_IRQ_TX_BASE, 0);
+
+        GPIO_state |= 0x02;
+        IOWR_ALTERA_AVALON_PIO_DATA(PIO_GPIO_BASE, GPIO_state);
+    }
+}
+
+
+static void key_isr(void* context)
+{
+    int edge = IORD_ALTERA_AVALON_PIO_EDGE_CAP(PIO_PB_BASE);
+
+    // Save which keys caused interrupt
+    key_events |= edge & 0x3;
+
+    // Clear handled edge bits
+    IOWR_ALTERA_AVALON_PIO_EDGE_CAP(PIO_PB_BASE, edge);
+}
+
+void key_setup(void)
+{
+    // Clear pending key edges
+    IOWR_ALTERA_AVALON_PIO_EDGE_CAP(PIO_PB_BASE, 0x3);
+
+    // Enable interrupts for key 0 and key 1
+    IOWR_ALTERA_AVALON_PIO_IRQ_MASK(PIO_PB_BASE, 0x3);
+
+    // Register ISR
+    alt_ic_isr_register(
+        PIO_PB_IRQ_INTERRUPT_CONTROLLER_ID,
+        PIO_PB_IRQ,
+        key_isr,
+        NULL,
+        NULL
+    );
+}
+
+
+
 
 void HEX_enable(int state)
 {

@@ -2,8 +2,8 @@
 <sch:Settings xmlns:sch="http://www.altera.com/embeddedsw/bsp/schema">
         <BspType>hal</BspType>
         <BspVersion>default</BspVersion>
-        <BspGeneratedTimeStamp>May 3, 2026 7:41:38 PM</BspGeneratedTimeStamp>
-        <BspGeneratedUnixTimeStamp>1777808498759</BspGeneratedUnixTimeStamp>
+        <BspGeneratedTimeStamp>May 4, 2026 9:48:28 PM</BspGeneratedTimeStamp>
+        <BspGeneratedUnixTimeStamp>1777902508589</BspGeneratedUnixTimeStamp>
         <BspGeneratedLocation>C:\temp\ECE3073-Project2025-Lab02-Group4\project\3073lab4_restored\software\image_bsp</BspGeneratedLocation>
         <BspSettingsFile>settings.bsp</BspSettingsFile>
         <SopcDesignFile>..\..\NIOSII_WEEK3.sopcinfo</SopcDesignFile>
@@ -917,10 +917,10 @@
         <LinkerRegion>
                 <regionName>new_sdram_controller_0</regionName>
                 <memoryName>new_sdram_controller_0</memoryName>
-                <offset>1048576</offset>
+                <offset>2097152</offset>
                 <size>1048576</size>
-                <baseAddress>0x4100000</baseAddress>
-                <addressRange>0x04100000 - 0x041FFFFF</addressRange>
+                <baseAddress>0x4200000</baseAddress>
+                <addressRange>0x04200000 - 0x042FFFFF</addressRange>
         </LinkerRegion>
         <MemoryMap>
                 <slaveDescriptor>image_mem</slaveDescriptor>

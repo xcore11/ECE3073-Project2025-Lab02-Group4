@@ -1,6 +1,6 @@
 #include <Seeed_Arduino_SSCMA.h>
 #include <ArduinoJson.h>
-#include <ESP32DMASPISlave.h>
+#include <ESP32SPISlave.h>
 #include <JPEGDecoder.h>
 #include <vector>
 
@@ -12,26 +12,21 @@ SSCMA AI;
 
 #define SPI_MODE SPI_MODE0
 
-ESP32DMASPI::Slave slave;
+ESP32SPISlave slave;
 
 /* =========================
    SPI protocol
    ========================= */   
 
-#define SPI_CMD_TRIGGER_CAPTURE 0x5F
-#define SPI_CMD_READ_LENGTH     0xA1
-#define SPI_CMD_READ_PACKET     0xA2
+#define SPI_REQUEST_BYTE 0x5F
+#define SPI_START_BYTE   0xA5
+#define SPI_MAX_TEXT_LEN 512
 
-#define SPI_COMMAND_BYTES       4
-#define SPI_LENGTH_BYTES        8
-#define SPI_DMA_EXTRA_BYTES     4
+uint8_t spi_rx_request[1] = {0};
+uint8_t spi_tx_dummy[1]   = {0};
 
-uint8_t *dma_cmd_rx       = NULL;
-uint8_t *dma_cmd_tx_dummy = NULL;
-uint8_t *dma_len_tx       = NULL;
-uint8_t *dma_len_rx_dummy = NULL;
-uint8_t *dma_packet_tx    = NULL;
-uint8_t *dma_packet_rx_dummy = NULL;
+uint8_t spi_reply_packet[SPI_MAX_TEXT_LEN + 2] = {0};
+uint8_t spi_reply_rx_discard[SPI_MAX_TEXT_LEN + 2] = {0};
 
 String latestPassageText = "";
 bool passageReadyForSpi = false;
@@ -54,14 +49,13 @@ bool passageReadyForSpi = false;
 #define PACKET_FLAG_IMAGE_VALID   0x0001
 #define PACKET_MAX_TEXT_LEN       512
 #define PACKET_MAX_LEN            (PACKET_HEADER_LEN + PACKET_MAX_TEXT_LEN + GRAY_BYTES)
-#define PACKET_DMA_MAX_LEN        (((PACKET_MAX_LEN + 3) & ~3) + SPI_DMA_EXTRA_BYTES)
 
 uint8_t latestGrayImage[GRAY_BYTES] = {0};
 bool latestGrayImageValid = false;
 
 uint8_t finalPacket[PACKET_MAX_LEN] = {0};
 uint32_t finalPacketLen = 0;
-volatile bool packetReadyForSpi = false;
+bool packetReadyForPrint = false;
 
 String storedJpegBase64 = "";
 bool imageUpdatedAfterFourRows = false;
@@ -1017,7 +1011,7 @@ void resetCaptureRowsKeepCalibration()
 
     finalPacketLen = 0;
     memset(finalPacket, 0, sizeof(finalPacket));
-    packetReadyForSpi = false;
+    packetReadyForPrint = false;
 }
 
 String buildFullPassageWithNewlines()
@@ -1268,42 +1262,6 @@ bool decodeStoredJpegToGray96()
 #endif
 }
 
-
-/* =========================
-   Capture finalization
-   ========================= */
-
-void finalizeCapture()
-{
-    Serial.println("[CAPTURE] invoke-fail end -> finalize passage");
-
-    printFrozenRows();
-
-    latestPassageText = buildFullPassageForSpiSpaces();
-
-    Serial.println();
-    Serial.println("========== FULL PASSAGE ==========");
-    Serial.println(buildFullPassageWithNewlines());
-    Serial.println("==================================");
-    Serial.print("SPI passage with spaces only: ");
-    Serial.println(latestPassageText);
-    Serial.println();
-
-#if ENABLE_IMAGE_CAPTURE
-    decodeStoredJpegToGray96();
-#else
-    latestGrayImageValid = false;
-#endif
-
-    buildFinalPacket();
-
-    /*
-       Keep captureActive true while packetReadyForSpi is true.
-       The SPI DMA task releases captureActive only after FPGA reads 0xA2 packet.
-    */
-    consecutiveInvokeFails = 0;
-}
-
 /* =========================
    Final packet build / print
    ========================= */
@@ -1372,8 +1330,7 @@ void buildFinalPacket()
         memcpy(&finalPacket[PACKET_HEADER_LEN + textLen], latestGrayImage, imageLen);
     }
 
-    packetReadyForSpi = true;
-    printPacketReadySummary();
+    packetReadyForPrint = true;
 }
 
 
@@ -1485,10 +1442,10 @@ void printGrayscalePayloadBmpBase64OneLine()
     free(bmp);
 }
 
-void printPacketReadySummary()
+void printFinalPacketAndConsume()
 {
     Serial.println();
-    Serial.println("========== PACKET READY FOR FPGA ==========");
+    Serial.println("========== PACKET PRINT TEST ==========");
     Serial.print("packet_len=");
     Serial.println(finalPacketLen);
     Serial.print("text_len=");
@@ -1501,20 +1458,65 @@ void printPacketReadySummary()
     Serial.print(latestGrayImageValid ? GRAY_H : 0);
     Serial.print(" bytes=");
     Serial.println(latestGrayImageValid ? GRAY_BYTES : 0);
+    Serial.print("flags=0x");
+    Serial.println(latestGrayImageValid ? PACKET_FLAG_IMAGE_VALID : 0, HEX);
     Serial.print("text=[");
     Serial.print(latestPassageText);
     Serial.println("]");
-    Serial.println("FPGA can now read length with 0xA1, then packet with 0xA2.");
-    Serial.println("Packet payload is raw binary: [24-byte header][text][96x96 grayscale].");
-    Serial.println("===========================================");
-    Serial.println();
-}
 
-void finishPacketAfterSpiSend()
-{
+    printGrayscalePayloadBmpBase64OneLine();
+
+    int preview = finalPacketLen;
+    if (preview > 96) {
+        preview = 96;
+    }
+
+    Serial.println("First packet bytes:");
+    for (int i = 0; i < preview; i++) {
+        if ((i % 16) == 0) {
+            Serial.println();
+            Serial.print(i);
+            Serial.print(": ");
+        }
+        if (finalPacket[i] < 0x10) {
+            Serial.print("0");
+        }
+        Serial.print(finalPacket[i], HEX);
+        Serial.print(" ");
+    }
+    Serial.println();
+    Serial.println("=======================================");
+    Serial.println();
+
+    /*
+       For now, printing is considered the send-back test.
+       captureActive becomes false only after this point.
+    */
     captureActive = false;
     resetCaptureRowsKeepCalibration();
-    Serial.println("[SPI] packet sent to FPGA, capture released");
+
+    Serial.println("[CAPTURE] complete, waiting for next valid 0x5F trigger");
+}
+
+void finalizeCapture()
+{
+    Serial.println("[CAPTURE] invoke-fail end -> finalize passage");
+
+    printFrozenRows();
+
+    String withNewlines = buildFullPassageWithNewlines();
+    latestPassageText = buildFullPassageForSpiSpaces();
+
+    Serial.println();
+    Serial.println("========== FULL PASSAGE ==========");
+    Serial.println(withNewlines);
+    Serial.println("==================================");
+    Serial.print("SPI passage with spaces only: ");
+    Serial.println(latestPassageText);
+    Serial.println();
+
+    decodeStoredJpegToGray96();
+    buildFinalPacket();
 }
 
 /* =========================
@@ -1564,9 +1566,9 @@ void handlePendingSpiTriggerInMainLoop()
         return;
     }
 
-    if (packetReadyForSpi) {
+    if (packetReadyForPrint) {
         spiIgnoredCounter++;
-        Serial.println("[SPI] 0x5F ignored: packet is ready and waiting for FPGA read");
+        Serial.println("[SPI] 0x5F ignored: packet print/send test not consumed yet");
         return;
     }
 
@@ -1595,100 +1597,40 @@ void maybeUpdateImageAfterFourRows()
    RTOS SPI receive task
    ========================= */
 
-static void writeLengthReply(uint32_t value)
-{
-    memset(dma_len_tx, 0, SPI_LENGTH_BYTES);
-    dma_len_tx[0] = (uint8_t)(value & 0xFF);
-    dma_len_tx[1] = (uint8_t)((value >> 8) & 0xFF);
-    dma_len_tx[2] = (uint8_t)((value >> 16) & 0xFF);
-    dma_len_tx[3] = (uint8_t)((value >> 24) & 0xFF);
-}
-
-static uint32_t roundUp4U32(uint32_t value)
-{
-    return (value + 3u) & ~3u;
-}
-
-void spiCommandTask(void *pvParameters)
+void spiTriggerTask(void *pvParameters)
 {
     (void)pvParameters;
 
-    Serial.println("[SPI] DMA command task started");
-    Serial.println("[SPI] commands: 0x5F trigger, 0xA1 read length, 0xA2 read packet");
-    Serial.println("[SPI] ESP is DMA slave; FPGA master must clock dummy bytes for replies");
+    Serial.println("[SPI] RTOS trigger task started");
+    Serial.println("[SPI] Task receives 0x5F and sets a flag. AI loop does not poll SPI.");
+    Serial.println("[SPI] Important: only ONE SPI transaction is queued at a time.");
 
     for (;;) {
-        memset(dma_cmd_rx, 0, SPI_COMMAND_BYTES);
-        memset(dma_cmd_tx_dummy, 0, SPI_COMMAND_BYTES);
+        memset(spi_rx_request, 0, sizeof(spi_rx_request));
 
-        slave.queue(dma_cmd_tx_dummy, dma_cmd_rx, SPI_COMMAND_BYTES);
-        std::vector<size_t> cmdDone = slave.wait();
+        /*
+           Queue exactly one 1-byte receive transaction, then block until
+           the FPGA clocks that byte.
 
-        if (cmdDone.empty()) {
-            vTaskDelay(1);
-            continue;
-        }
+           Do NOT use wait(1000) here. With timeout waiting, the old code
+           could queue a new transaction even though the previous transaction
+           was still pending. With queue size = 1, that can corrupt the SPI
+           slave transaction state and cause the ESP32-C3 Load access fault.
+        */
+        slave.queue(NULL, spi_rx_request, 1);
 
-        uint8_t cmd = dma_cmd_rx[0];
+        std::vector<size_t> completedTransactions = slave.wait();
 
-        if (cmd == SPI_CMD_TRIGGER_CAPTURE) {
-            portENTER_CRITICAL(&spiFlagMux);
-            spiTriggerPending = true;
-            spiTriggerCounter++;
-            portEXIT_CRITICAL(&spiFlagMux);
-        }
-        else if (cmd == SPI_CMD_READ_LENGTH) {
-            uint32_t lenToSend = 0;
-            if (packetReadyForSpi && finalPacketLen > 0) {
-                lenToSend = finalPacketLen;
-            }
-
-            writeLengthReply(lenToSend);
-            memset(dma_len_rx_dummy, 0, SPI_LENGTH_BYTES);
-
-            slave.queue(dma_len_tx, dma_len_rx_dummy, SPI_LENGTH_BYTES);
-            slave.wait();
-
-            if (lenToSend == 0) {
-                Serial.println("[SPI] length request -> 0, packet not ready");
-            } else {
-                Serial.print("[SPI] length sent -> ");
-                Serial.println(lenToSend);
+        if (!completedTransactions.empty()) {
+            if (spi_rx_request[0] == SPI_REQUEST_BYTE) {
+                portENTER_CRITICAL(&spiFlagMux);
+                spiTriggerPending = true;
+                spiTriggerCounter++;
+                portEXIT_CRITICAL(&spiFlagMux);
             }
         }
-        else if (cmd == SPI_CMD_READ_PACKET) {
-            if (!packetReadyForSpi || finalPacketLen == 0) {
-                memset(dma_len_tx, 0, SPI_LENGTH_BYTES);
-                memset(dma_len_rx_dummy, 0, SPI_LENGTH_BYTES);
-                slave.queue(dma_len_tx, dma_len_rx_dummy, SPI_LENGTH_BYTES);
-                slave.wait();
-                Serial.println("[SPI] packet request but packet not ready -> sent zeros");
-            } else {
-                uint32_t txLen = roundUp4U32(finalPacketLen) + SPI_DMA_EXTRA_BYTES;
-                if (txLen > PACKET_DMA_MAX_LEN) {
-                    txLen = PACKET_DMA_MAX_LEN;
-                }
 
-                memset(dma_packet_tx, 0, PACKET_DMA_MAX_LEN);
-                memset(dma_packet_rx_dummy, 0, PACKET_DMA_MAX_LEN);
-                memcpy(dma_packet_tx, finalPacket, finalPacketLen);
-
-                Serial.print("[SPI] packet read requested, sending bytes=");
-                Serial.print(finalPacketLen);
-                Serial.print(" clocks=");
-                Serial.println(txLen);
-
-                slave.queue(dma_packet_tx, dma_packet_rx_dummy, txLen);
-                slave.wait();
-
-                finishPacketAfterSpiSend();
-            }
-        }
-        else {
-            Serial.print("[SPI] unknown command 0x");
-            Serial.println(cmd, HEX);
-        }
-
+        /* Yield once after a completed transaction. */
         vTaskDelay(1);
     }
 }
@@ -1706,21 +1648,7 @@ void setup()
 
     Serial.println("Starting SPI slave...");
 
-    dma_cmd_rx = slave.allocDMABuffer(SPI_COMMAND_BYTES);
-    dma_cmd_tx_dummy = slave.allocDMABuffer(SPI_COMMAND_BYTES);
-    dma_len_tx = slave.allocDMABuffer(SPI_LENGTH_BYTES);
-    dma_len_rx_dummy = slave.allocDMABuffer(SPI_LENGTH_BYTES);
-    dma_packet_tx = slave.allocDMABuffer(PACKET_DMA_MAX_LEN);
-    dma_packet_rx_dummy = slave.allocDMABuffer(PACKET_DMA_MAX_LEN);
-
-    if (!dma_cmd_rx || !dma_cmd_tx_dummy || !dma_len_tx || !dma_len_rx_dummy ||
-        !dma_packet_tx || !dma_packet_rx_dummy) {
-        Serial.println("[SPI] DMA buffer allocation failed");
-        while (1) { delay(1000); }
-    }
-
     slave.setDataMode(SPI_MODE);
-    slave.setMaxTransferSize(PACKET_DMA_MAX_LEN);
     slave.setQueueSize(1);
     slave.begin();
 
@@ -1740,8 +1668,8 @@ void setup()
        This creates the SPI trigger receiver task on the available core.
     */
     BaseType_t ok = xTaskCreate(
-        spiCommandTask,
-        "spiCommandTask",
+        spiTriggerTask,
+        "spiTriggerTask",
         8192,
         NULL,
         1,
@@ -1762,10 +1690,11 @@ void loop()
     frameCounter++;
 
     /*
-       Packet is ready. Do not continue AI capture until FPGA reads it with 0xA2.
-       SPI DMA task will release captureActive after the packet transfer completes.
+       First handle completed packet printing.
+       captureActive becomes false only after this print/send-back test.
     */
-    if (packetReadyForSpi) {
+    if (packetReadyForPrint) {
+        printFinalPacketAndConsume();
         delay(PRINT_DELAY_MS);
         return;
     }

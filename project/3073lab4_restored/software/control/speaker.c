@@ -8,12 +8,14 @@
 #include "system.h"
 #include "io.h"
 #include "altera_avalon_pio_regs.h"
-#include "switches.h"
+
+#include "control.h"
 
 static int speaker_current = 0; // current state of the speaker
 static int toggle_counter = 0; // counter for toggling
 static int frequency_threshold = 0; // threshold before toggling and resetting counter
 static int frequency_prev = 0; // remembers previous frequency to avoid redundant calculations
+
 
 // Play a given tone
 void play_speaker (int frequency, int on_off){

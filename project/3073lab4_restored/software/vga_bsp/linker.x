@@ -4,7 +4,7 @@
  * Machine generated for CPU 'vga_proc' in SOPC Builder design 'NIOSII_WEEK3'
  * SOPC Builder design path: ../../NIOSII_WEEK3.sopcinfo
  *
- * Generated: Sat May 02 18:14:12 SGT 2026
+ * Generated: Mon May 04 21:48:53 SGT 2026
  */
 
 /*
@@ -52,7 +52,7 @@ MEMORY
 {
     reset : ORIGIN = 0x4000, LENGTH = 32
     vga_mem : ORIGIN = 0x4020, LENGTH = 16352
-    new_sdram_controller_0 : ORIGIN = 0x4200000, LENGTH = 1048576
+    new_sdram_controller_0 : ORIGIN = 0x4300000, LENGTH = 1048576
 }
 
 /* Define symbols for each memory base-address */
@@ -393,7 +393,7 @@ SECTIONS
 /*
  * Don't override this, override the __alt_stack_* symbols instead.
  */
-__alt_data_end = 0x4300000;
+__alt_data_end = 0x4400000;
 
 /*
  * The next two symbols define the location of the default stack.  You can
@@ -409,4 +409,4 @@ PROVIDE( __alt_stack_limit   = __alt_stack_base );
  * Override this symbol to put the heap in a different memory.
  */
 PROVIDE( __alt_heap_start    = end );
-PROVIDE( __alt_heap_limit    = 0x4300000 );
+PROVIDE( __alt_heap_limit    = 0x4400000 );

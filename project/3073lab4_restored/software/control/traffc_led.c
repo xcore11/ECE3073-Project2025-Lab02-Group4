@@ -4,10 +4,10 @@
  *  Created on: Apr 20, 2026
  *      Author: User
  */
-#include "switches.h"
 #include "altera_avalon_pio_regs.h"
 #include <stdio.h>
 #include "system.h"
+#include "control.h"
 
 static int LED_state = 0b000;
 

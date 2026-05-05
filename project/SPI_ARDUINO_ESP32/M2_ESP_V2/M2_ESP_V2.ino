@@ -14,11 +14,11 @@ ESP32SPISlave slave;
 
 /* =========================
    SPI protocol
-   ========================= */
+   ========================= */   
 
 #define SPI_REQUEST_BYTE 0x5F
 #define SPI_START_BYTE   0xA5
-#define SPI_MAX_TEXT_LEN 62
+#define SPI_MAX_TEXT_LEN 128
 
 uint8_t spi_rx_request[1] = {0};
 uint8_t spi_tx_dummy[1]   = {0};

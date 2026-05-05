@@ -27,6 +27,10 @@
 //#define PIO_WREN_BASE 0x9040
 
 /* existing switch / HEX functions */
+void switch_setup(void);
+void key_setup(void);
+void img_rx_setup(void);
+void vga_rx_setup(void);
 void HEX_enable(int state);
 void handle_switch2(int state, const char *message);
 void handle_switch3(int state);
