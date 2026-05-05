@@ -2,9 +2,9 @@
 <sch:Settings xmlns:sch="http://www.altera.com/embeddedsw/bsp/schema">
         <BspType>hal</BspType>
         <BspVersion>default</BspVersion>
-        <BspGeneratedTimeStamp>May 3, 2026 7:40:48 PM</BspGeneratedTimeStamp>
-        <BspGeneratedUnixTimeStamp>1777808448251</BspGeneratedUnixTimeStamp>
-        <BspGeneratedLocation>C:\temp\ECE3073-Project2025-Lab02-Group4\project\3073lab4_restored\software\vga_bsp</BspGeneratedLocation>
+        <BspGeneratedTimeStamp>May 4, 2026 2:41:48 PM</BspGeneratedTimeStamp>
+        <BspGeneratedUnixTimeStamp>1777876908789</BspGeneratedUnixTimeStamp>
+        <BspGeneratedLocation>C:\ECE3073\ECE4078_Lab_2025\ECE3073-Project2025-Lab02-Group4\project\3073lab4_restored\software\vga_bsp</BspGeneratedLocation>
         <BspSettingsFile>settings.bsp</BspSettingsFile>
         <SopcDesignFile>..\..\NIOSII_WEEK3.sopcinfo</SopcDesignFile>
         <JdiFile>default</JdiFile>
