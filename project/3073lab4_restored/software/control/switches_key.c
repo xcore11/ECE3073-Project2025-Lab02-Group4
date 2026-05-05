@@ -4,10 +4,6 @@
 #include <stdio.h>
 #include <string.h>
 #include "control.h"
-#define CON_IMG_IRQ_TX_BASE 0x8011130
-#define CON_IMG_IRQ_RX_BASE 0x8011120
-#define CON_VGA_IRQ_TX_BASE 0x8011110
-#define CON_VGA_IRQ_RX_BASE 0x8011100
 volatile int switch_state = 0;
 volatile int key_state = 0;
 volatile int GPIO_state = 0;
@@ -15,60 +11,51 @@ static int HEX_enable_bit = 0;
 static int scroll_counter = 0;
 static int scroll_offset = 0;
 const int scroll_speed = 2000;
-volatile int key_events = 0;
-void handle_key1(void)
-{
-    if (key_events & 0x01)
-    {
-        key_events &= ~0x01;
 
-        printf("KEY1 pressed\n");
+static void switch_isr(void* context) {
+    // Clear the edge capture register
+    IOWR_ALTERA_AVALON_PIO_EDGE_CAP(PIO_SW_BASE, 0xF);
 
-        IOWR_ALTERA_AVALON_PIO_DATA(CON_IMG_IRQ_TX_BASE, 1);
-        IOWR_ALTERA_AVALON_PIO_DATA(CON_IMG_IRQ_TX_BASE, 0);
-
-        GPIO_state |= 0x01;
-        IOWR_ALTERA_AVALON_PIO_DATA(PIO_GPIO_BASE, GPIO_state);
-    }
+    // Updates the switch switch_state
+    switch_state = IORD_ALTERA_AVALON_PIO_DATA(PIO_SW_BASE);
 }
 
-void handle_key2(void)
-{
-    if (key_events & 0x02)
-    {
-        key_events &= ~0x02;
+void switch_setup(void) {
+    // Clear pending switch triggers
+    IOWR_ALTERA_AVALON_PIO_EDGE_CAP(PIO_SW_BASE, 0xF);
 
-        printf("KEY2 pressed\n");
+    // Enable hardware interrupts
+    IOWR_ALTERA_AVALON_PIO_IRQ_MASK(PIO_SW_BASE, 0xF);
 
-        IOWR_ALTERA_AVALON_PIO_DATA(CON_VGA_IRQ_TX_BASE, 1);
-        IOWR_ALTERA_AVALON_PIO_DATA(CON_VGA_IRQ_TX_BASE, 0);
+    // Register the ISR with the processor
+    alt_ic_isr_register(
+        PIO_SW_IRQ_INTERRUPT_CONTROLLER_ID,
+        PIO_SW_IRQ,
+        switch_isr,
+        NULL,
+        NULL
+    );
 
-        GPIO_state |= 0x02;
-        IOWR_ALTERA_AVALON_PIO_DATA(PIO_GPIO_BASE, GPIO_state);
-    }
+    // Setup initial switch switch_state
+    switch_state = IORD_ALTERA_AVALON_PIO_DATA(PIO_SW_BASE);
 }
 
-
-static void key_isr(void* context)
-{
-    int edge = IORD_ALTERA_AVALON_PIO_EDGE_CAP(PIO_PB_BASE);
-
-    // Save which keys caused interrupt
-    key_events |= edge & 0x3;
-
-    // Clear handled edge bits
-    IOWR_ALTERA_AVALON_PIO_EDGE_CAP(PIO_PB_BASE, edge);
-}
-
-void key_setup(void)
-{
-    // Clear pending key edges
+static void key_isr(void* context) {
+    // Clear the edge capture register
     IOWR_ALTERA_AVALON_PIO_EDGE_CAP(PIO_PB_BASE, 0x3);
 
-    // Enable interrupts for key 0 and key 1
+    // Updates the key key_state
+    key_state = IORD_ALTERA_AVALON_PIO_DATA(PIO_PB_BASE);
+}
+
+void key_setup(void) {
+    // Clear pending key triggers
+    IOWR_ALTERA_AVALON_PIO_EDGE_CAP(PIO_PB_BASE, 0x3);
+
+    // Enable hardware interrupts
     IOWR_ALTERA_AVALON_PIO_IRQ_MASK(PIO_PB_BASE, 0x3);
 
-    // Register ISR
+    // Register the ISR with the processor
     alt_ic_isr_register(
         PIO_PB_IRQ_INTERRUPT_CONTROLLER_ID,
         PIO_PB_IRQ,
@@ -76,14 +63,90 @@ void key_setup(void)
         NULL,
         NULL
     );
+
+    // Setup initial key key_state
+    key_state = IORD_ALTERA_AVALON_PIO_DATA(PIO_PB_BASE);
 }
 
+static void img_rx_isr(void* context) {
+    // Clear the edge capture register
+    IOWR_ALTERA_AVALON_PIO_EDGE_CAP(CON_IMG_IRQ_RX_BASE, 0x1);
 
+    // Resets the GPIO [0]
+    IOWR_ALTERA_AVALON_PIO_DATA(PIO_GPIO_BASE, (GPIO_state & 0x2));
+    GPIO_state = GPIO_state & 0x2;
+}
 
+void img_rx_setup(void) {
+    // Clear GPIO triggers
+    IOWR_ALTERA_AVALON_PIO_EDGE_CAP(CON_IMG_IRQ_RX_BASE, 0x1);
 
-void HEX_enable(int state)
+    // Enable hardware interrupts
+    IOWR_ALTERA_AVALON_PIO_IRQ_MASK(CON_IMG_IRQ_RX_BASE, 0x1);
+
+    // Register the ISR with the processor
+    alt_ic_isr_register(
+    	CON_IMG_IRQ_RX_IRQ_INTERRUPT_CONTROLLER_ID,
+		CON_IMG_IRQ_RX_IRQ,
+        img_rx_isr,
+        NULL,
+        NULL
+    );
+}
+
+static void vga_rx_isr(void* context) {
+    // Clear the edge capture register
+    IOWR_ALTERA_AVALON_PIO_EDGE_CAP(CON_VGA_IRQ_RX_BASE, 0x1);
+
+    // Resets the GPIO [1]
+    IOWR_ALTERA_AVALON_PIO_DATA(PIO_GPIO_BASE, (GPIO_state & 0x1));
+    GPIO_state = GPIO_state & 0x1;
+}
+
+void vga_rx_setup(void) {
+    // Clear GPIO triggers
+    IOWR_ALTERA_AVALON_PIO_EDGE_CAP(CON_VGA_IRQ_RX_BASE, 0x1);
+
+    // Enable hardware interrupts
+    IOWR_ALTERA_AVALON_PIO_IRQ_MASK(CON_VGA_IRQ_RX_BASE, 0x1);
+
+    // Register the ISR with the processor
+    alt_ic_isr_register(
+    	CON_VGA_IRQ_RX_IRQ_INTERRUPT_CONTROLLER_ID,
+		CON_VGA_IRQ_RX_IRQ,
+        vga_rx_isr,
+        NULL,
+        NULL
+    );
+}
+
+void handle_key1(void)
 {
-    if (state & 0x01) {
+	if ((~key_state) & 0x01)
+	{
+		IOWR_ALTERA_AVALON_PIO_DATA(CON_IMG_IRQ_TX_BASE, 0x1);
+		IOWR_ALTERA_AVALON_PIO_DATA(CON_IMG_IRQ_TX_BASE, 0x0);
+		GPIO_state = GPIO_state | 0x1;
+		IOWR_ALTERA_AVALON_PIO_DATA(PIO_GPIO_BASE, GPIO_state);
+		key_state = (key_state | 0x01);
+	}
+}
+
+void handle_key2(void)
+{
+	if ((~key_state) & 0x02)
+	{
+		IOWR_ALTERA_AVALON_PIO_DATA(CON_VGA_IRQ_TX_BASE, 0x1);
+		IOWR_ALTERA_AVALON_PIO_DATA(CON_VGA_IRQ_TX_BASE, 0x0);
+		GPIO_state = GPIO_state | 0x2;
+		IOWR_ALTERA_AVALON_PIO_DATA(PIO_GPIO_BASE, GPIO_state);
+		key_state = (key_state | 0x02);
+	}
+}
+
+void HEX_enable(void)
+{
+    if (switch_state & 0x01) {
         HEX_enable_bit = 1;
     } else {
         IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX0_BASE, 0xFF);
@@ -99,9 +162,9 @@ void HEX_enable(int state)
     }
 }
 
-void handle_switch2(int state, const char *message)
+void handle_switch2(const char *message)
 {
-    if ((state & 0x02) && HEX_enable_bit) {
+    if ((switch_state & 0x02) && HEX_enable_bit) {
         char padded_message[64];
         int msg_len;
 
@@ -143,9 +206,9 @@ void handle_switch2(int state, const char *message)
     }
 }
 
-void handle_switch3(int state)
+void handle_switch3(void)
 {
-    if ((state & 0x04) && HEX_enable_bit) {
+    if ((switch_state & 0x04) && HEX_enable_bit) {
         /* placeholder CPU utilization */
         IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX1_BASE, translator('8'));
         IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX0_BASE, translator('7'));
@@ -155,9 +218,9 @@ void handle_switch3(int state)
     }
 }
 
-void handle_switch4(int state)
+void handle_switch4(void)
 {
-	if (state & 0x08) {
+	if (switch_state & 0x08) {
 		play_speaker(1000, 1);
 	} else {
 		play_speaker(1000, 0);

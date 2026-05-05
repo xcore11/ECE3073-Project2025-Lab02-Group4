@@ -24,13 +24,24 @@ int main(void)
     red_light(0);
 
     // Setup the switch and key interrupts
+    switch_setup();
     key_setup();
+    img_rx_setup();
+    vga_rx_setup();
 
     while (1)
     {
     	// Key Operations
     	handle_key1();
     	handle_key2();
+
+        // Flag Switch and Reset HEX
+        HEX_enable();
+
+        // Handle CPU and Speaker switch
+        handle_switch2("TEST123");
+        handle_switch3();
+        handle_switch4();
 
         // Traffic Light operation
         traffic_counter++;
