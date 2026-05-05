@@ -959,7 +959,7 @@
   <parameter name="instruction_master_high_performance_paddr_size" value="0" />
   <parameter name="instruction_master_paddr_base" value="0" />
   <parameter name="instruction_master_paddr_size" value="0" />
-  <parameter name="internalIrqMaskSystemInfo" value="30" />
+  <parameter name="internalIrqMaskSystemInfo" value="31" />
   <parameter name="io_regionbase" value="0" />
   <parameter name="io_regionsize" value="0" />
   <parameter name="master_addr_map" value="false" />
@@ -1169,7 +1169,7 @@
   <parameter name="instruction_master_high_performance_paddr_size" value="0" />
   <parameter name="instruction_master_paddr_base" value="0" />
   <parameter name="instruction_master_paddr_size" value="0" />
-  <parameter name="internalIrqMaskSystemInfo" value="7" />
+  <parameter name="internalIrqMaskSystemInfo" value="15" />
   <parameter name="io_regionbase" value="0" />
   <parameter name="io_regionsize" value="0" />
   <parameter name="master_addr_map" value="false" />
@@ -1568,12 +1568,12 @@
  <module name="pio_pb" kind="altera_avalon_pio" version="18.1" enabled="1">
   <parameter name="bitClearingEdgeCapReg" value="false" />
   <parameter name="bitModifyingOutReg" value="false" />
-  <parameter name="captureEdge" value="false" />
+  <parameter name="captureEdge" value="true" />
   <parameter name="clockRate" value="50000000" />
   <parameter name="direction" value="Input" />
-  <parameter name="edgeType" value="RISING" />
+  <parameter name="edgeType" value="FALLING" />
   <parameter name="generateIRQ" value="true" />
-  <parameter name="irqType" value="LEVEL" />
+  <parameter name="irqType" value="EDGE" />
   <parameter name="resetValue" value="0" />
   <parameter name="simDoTestBenchWiring" value="false" />
   <parameter name="simDrivenValue" value="0" />
@@ -1636,12 +1636,12 @@
  <module name="pio_sw" kind="altera_avalon_pio" version="18.1" enabled="1">
   <parameter name="bitClearingEdgeCapReg" value="false" />
   <parameter name="bitModifyingOutReg" value="false" />
-  <parameter name="captureEdge" value="false" />
+  <parameter name="captureEdge" value="true" />
   <parameter name="clockRate" value="50000000" />
   <parameter name="direction" value="Input" />
-  <parameter name="edgeType" value="RISING" />
-  <parameter name="generateIRQ" value="false" />
-  <parameter name="irqType" value="LEVEL" />
+  <parameter name="edgeType" value="ANY" />
+  <parameter name="generateIRQ" value="true" />
+  <parameter name="irqType" value="EDGE" />
   <parameter name="resetValue" value="0" />
   <parameter name="simDoTestBenchWiring" value="false" />
   <parameter name="simDrivenValue" value="0" />
@@ -1803,7 +1803,7 @@
   <parameter name="instruction_master_high_performance_paddr_size" value="0" />
   <parameter name="instruction_master_paddr_base" value="0" />
   <parameter name="instruction_master_paddr_size" value="0" />
-  <parameter name="internalIrqMaskSystemInfo" value="7" />
+  <parameter name="internalIrqMaskSystemInfo" value="15" />
   <parameter name="io_regionbase" value="0" />
   <parameter name="io_regionsize" value="0" />
   <parameter name="master_addr_map" value="false" />
@@ -2765,7 +2765,7 @@
    version="18.1"
    start="control_proc.irq"
    end="jtag_control.irq">
-  <parameter name="irqNumber" value="1" />
+  <parameter name="irqNumber" value="0" />
  </connection>
  <connection
    kind="interrupt"
@@ -2793,7 +2793,7 @@
    version="18.1"
    start="control_proc.irq"
    end="pio_pb.irq">
-  <parameter name="irqNumber" value="2" />
+  <parameter name="irqNumber" value="1" />
  </connection>
  <connection
    kind="interrupt"
@@ -2822,6 +2822,23 @@
    start="vga_proc.irq"
    end="vga_IRQ_rx.irq">
   <parameter name="irqNumber" value="1" />
+ </connection>
+ <connection
+   kind="interrupt"
+   version="18.1"
+   start="control_proc.irq"
+   end="pio_sw.irq">
+  <parameter name="irqNumber" value="2" />
+ </connection>
+ <connection
+   kind="interrupt"
+   version="18.1"
+   start="image_proc.irq"
+   end="pio_pb.irq">
+  <parameter name="irqNumber" value="3" />
+ </connection>
+ <connection kind="interrupt" version="18.1" start="vga_proc.irq" end="pio_pb.irq">
+  <parameter name="irqNumber" value="3" />
  </connection>
  <connection
    kind="reset"
