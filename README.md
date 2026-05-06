@@ -66,6 +66,17 @@ ECE3073-Project2025-Lab02-Group4/
 9. HEX Display - Display message (1st to 4th display) and CPU usage (5th and 6th display).
 10. SPI - Exchange message between ESP32 board and the FPGA board.
 
+# Milestone 2
+1. Groove AI V2 Module - Converts camera input to digital data, which proceeds to transmit to the FPGA system.
+2. Camera - Able to capture camera input to be sent to the Module.
+3. De10-Lite Board - Able to perform multi-processor architecture.
+4. SW1 - Displays captured sentence from Groove AI V2 Module.
+5. SW2 - Displays the CPU usage percentage, in this case a dummy sentence is hardcoded into the switch.
+6. Accelerometer - Measures tilt angle, paired with the VGA to show on board movement. Also able to detect if the board is over tilted (emergency stop).
+7. VGA - 1) Displays text / image from the Groove AI V2 Module 2) Display board tilt movement
+8. KEY1 - Captures the image, wait until it receives an image.
+9. KEY0 - Displays the image captured.
+
 ## Roadmap
 ### Milestone 1: VGA Controller
 - [x] Initial NIOS II Hardware Setup (WC)
