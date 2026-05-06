@@ -4,7 +4,7 @@
  * Machine generated for CPU 'control_proc' in SOPC Builder design 'NIOSII_WEEK3'
  * SOPC Builder design path: ../../NIOSII_WEEK3.sopcinfo
  *
- * Generated: Fri May 01 04:08:40 SGT 2026
+ * Generated: Sat May 02 18:14:21 SGT 2026
  */
 
 /*
@@ -50,14 +50,14 @@
 
 MEMORY
 {
-    new_sdram_controller_0 : ORIGIN = 0x0, LENGTH = 1048576
-    reset : ORIGIN = 0x4008000, LENGTH = 32
-    control_mem : ORIGIN = 0x4008020, LENGTH = 32736
+    new_sdram_controller_0 : ORIGIN = 0x4000000, LENGTH = 1048576
+    reset : ORIGIN = 0x8008000, LENGTH = 32
+    control_mem : ORIGIN = 0x8008020, LENGTH = 32736
 }
 
 /* Define symbols for each memory base-address */
-__alt_mem_new_sdram_controller_0 = 0x0;
-__alt_mem_control_mem = 0x4008000;
+__alt_mem_new_sdram_controller_0 = 0x4000000;
+__alt_mem_control_mem = 0x8008000;
 
 OUTPUT_FORMAT( "elf32-littlenios2",
                "elf32-littlenios2",
@@ -93,7 +93,7 @@ SECTIONS
      *
      */
 
-    .exceptions : AT ( 0x0 )
+    .exceptions : AT ( 0x4000000 )
     {
         PROVIDE (__ram_exceptions_start = ABSOLUTE(.));
         . = ALIGN(0x20);
@@ -407,7 +407,7 @@ SECTIONS
 /*
  * Don't override this, override the __alt_stack_* symbols instead.
  */
-__alt_data_end = 0x100000;
+__alt_data_end = 0x4100000;
 
 /*
  * The next two symbols define the location of the default stack.  You can
@@ -423,4 +423,4 @@ PROVIDE( __alt_stack_limit   = __alt_stack_base );
  * Override this symbol to put the heap in a different memory.
  */
 PROVIDE( __alt_heap_start    = end );
-PROVIDE( __alt_heap_limit    = 0x100000 );
+PROVIDE( __alt_heap_limit    = 0x4100000 );

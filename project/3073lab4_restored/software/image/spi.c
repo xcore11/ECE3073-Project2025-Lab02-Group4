@@ -1,245 +1,200 @@
-#include "image.h"
 #include "io.h"
+#include "system.h"
 #include <stdint.h>
-#include <string.h>
+#include <stdio.h>
 #include <unistd.h>
+#include "shared_memory.h"
+#include "spi.h"
 
-// SPI register base address
-#define SPI_BASE            0x08011020
+/* =========================
+   SPI register base
+   ========================= */
 
-// Offsets for each SPI register
+#define SPI_BASE            SPI_0_BASE
+
+/* =========================
+   SPI register offsets
+   ========================= */
+
 #define SPI_RXDATA_OFS      0
 #define SPI_TXDATA_OFS      4
 #define SPI_STATUS_OFS      8
 #define SPI_CONTROL_OFS     12
 #define SPI_SLAVESEL_OFS    20
 
-// Status bits from SPI status register
-#define SPI_STATUS_RRDY     (1 << 7)   // receive data ready
-#define SPI_STATUS_TRDY     (1 << 6)   // transmit ready
-#define SPI_STATUS_TMT      (1 << 5)   // transmit empty
-#define SPI_STATUS_TOE      (1 << 4)   // transmit overflow error
-#define SPI_STATUS_ROE      (1 << 3)   // receive overflow error
-#define SPI_STATUS_E        (1 << 8)   // generic error
+/* =========================
+   SPI status bits
+   ========================= */
 
-// Control bit to hold slave select active
+#define SPI_STATUS_RRDY     (1 << 7)
+#define SPI_STATUS_TRDY     (1 << 6)
+
+/* =========================
+   SPI control bits
+   ========================= */
+
 #define SPI_CONTROL_SSO     (1 << 10)
 
-// General SPI settings
-#define SPI_TIMEOUT         1000000UL
+/* =========================
+   SPI protocol
+   ========================= */
+
 #define SPI_SLAVE_0         0x1
-#define ESP_REPLY_WAIT_US   5200000UL
+#define SPI_REQUEST_BYTE    0x5F
+#define SPI_DUMMY_BYTE      0x00
+#define SPI_START_BYTE      0xA5
 
-// Maximum length of message
-#define SPI_MAX_MSG_LEN     64
+#define SPI_MAX_TEXT_LEN    128
 
-// Stores whether latest received message is valid
-static int spi_valid = 0;
+static char spi_rx_text[SPI_MAX_TEXT_LEN + 1];
 
-// Stores received SPI message
-static char rx_message[SPI_MAX_MSG_LEN + 1];
+/* =========================
+   SDRAM helpers
+   ========================= */
 
-// Clears SPI error flags
-static void spi_clear_errors(void)
+static void sdram_write_status(uint32_t offset, uint32_t value)
 {
-    IOWR_32DIRECT(SPI_BASE, SPI_STATUS_OFS, 0);
+    IOWR_32DIRECT(STATUS_BASE, offset, value);
 }
 
-// Wait until transmit register is ready
-static int spi_wait_trdy(void)
+static void sdram_store_text(const char *text)
 {
-    uint32_t timeout = SPI_TIMEOUT;
+    volatile char *dst = (volatile char *)TEXT_BUFFER_BASE;
+    int i;
 
-    while (timeout--) {
-        if (IORD_32DIRECT(SPI_BASE, SPI_STATUS_OFS) & SPI_STATUS_TRDY) {
-            return 1;
-        }
+    for (i = 0; i < TEXT_BUFFER_SIZE; i++) {
+        dst[i] = '\0';
     }
-    return 0;
-}
 
-// Wait until receive data is ready
-static int spi_wait_rrdy(void)
-{
-    uint32_t timeout = SPI_TIMEOUT;
-
-    while (timeout--) {
-        if (IORD_32DIRECT(SPI_BASE, SPI_STATUS_OFS) & SPI_STATUS_RRDY) {
-            return 1;
-        }
+    for (i = 0; i < TEXT_BUFFER_SIZE - 1 && text[i] != '\0'; i++) {
+        dst[i] = text[i];
     }
-    return 0;
+
+    dst[i] = '\0';
+
+    sdram_write_status(STATUS_SPI_RX_COUNT, (uint32_t)i);
+    sdram_write_status(STATUS_TEXT_READY, 1);
 }
 
-// Wait until transmitter is fully empty
-static int spi_wait_tmt(void)
+/* =========================
+   Basic SPI helpers
+   ========================= */
+
+void spi_init_manual(void)
 {
-    uint32_t timeout = SPI_TIMEOUT;
+    IOWR_32DIRECT(SPI_BASE, SPI_SLAVESEL_OFS, SPI_SLAVE_0);
+    IOWR_32DIRECT(SPI_BASE, SPI_CONTROL_OFS, 0);
 
-    while (timeout--) {
-        if (IORD_32DIRECT(SPI_BASE, SPI_STATUS_OFS) & SPI_STATUS_TMT) {
-            return 1;
-        }
-    }
-    return 0;
+    sdram_write_status(STATUS_TEXT_READY, 0);
+    sdram_write_status(STATUS_CMD_READY, 0);
+    sdram_write_status(STATUS_CMD_ACK, 0);
+    sdram_write_status(STATUS_SPI_RX_COUNT, 0);
+    sdram_write_status(STATUS_LAST_ERROR, 0);
 }
 
-// Starts an SPI transaction by selecting slave 0
 static void spi_begin_transaction(void)
 {
     IOWR_32DIRECT(SPI_BASE, SPI_SLAVESEL_OFS, SPI_SLAVE_0);
     IOWR_32DIRECT(SPI_BASE, SPI_CONTROL_OFS, SPI_CONTROL_SSO);
 }
 
-// Ends the transaction after making sure last byte finished sending
 static void spi_end_transaction(void)
 {
-    spi_wait_tmt();
     IOWR_32DIRECT(SPI_BASE, SPI_CONTROL_OFS, 0);
 }
 
-// Sends one byte and reads one byte back
-static int spi_transfer_byte(uint8_t tx, uint8_t *rx)
+static uint8_t spi_transfer_byte(uint8_t tx_byte)
 {
-    uint32_t status;
-
-    // wait until SPI can accept a new byte to transmit
-    if (!spi_wait_trdy()) {
-        return 0;
-    }
-
-    // write transmit byte into TX register
-    IOWR_32DIRECT(SPI_BASE, SPI_TXDATA_OFS, tx);
-
-    // wait until a byte comes back
-    if (!spi_wait_rrdy()) {
-        return 0;
-    }
-
-    // read only the lowest 8 bits from RX register
-    *rx = (uint8_t)(IORD_32DIRECT(SPI_BASE, SPI_RXDATA_OFS) & 0xFF);
-
-    // check if any SPI error happened
-    status = IORD_32DIRECT(SPI_BASE, SPI_STATUS_OFS);
-    if (status & (SPI_STATUS_TOE | SPI_STATUS_ROE | SPI_STATUS_E)) {
-        spi_clear_errors();
-        return 0;
-    }
-
-    return 1;
-}
-
-// Initializes SPI software state and clears buffers
-void spi_init_manual(void)
-{
-    spi_valid = 0;
-    memset(rx_message, 0, sizeof(rx_message));
-
-    spi_clear_errors();
-    IOWR_32DIRECT(SPI_BASE, SPI_SLAVESEL_OFS, SPI_SLAVE_0);
-    IOWR_32DIRECT(SPI_BASE, SPI_CONTROL_OFS, 0);
-}
-
-// Sends a message first, then clocks back a reply from slave
-void spi_start_capture(const char *message)
-{
-    int i;
-    int msg_len;
-    uint8_t throwaway;
     uint8_t rx_byte;
-    char tx_message[SPI_MAX_MSG_LEN + 1];
 
-    // reset previous result
-    spi_valid = 0;
-    memset(rx_message, 0, sizeof(rx_message));
+    while (!(IORD_32DIRECT(SPI_BASE, SPI_STATUS_OFS) & SPI_STATUS_TRDY));
 
-    if (message == 0) {
-        return;
+    IOWR_32DIRECT(SPI_BASE, SPI_TXDATA_OFS, tx_byte);
+
+    while (!(IORD_32DIRECT(SPI_BASE, SPI_STATUS_OFS) & SPI_STATUS_RRDY));
+
+    rx_byte = (uint8_t)(IORD_32DIRECT(SPI_BASE, SPI_RXDATA_OFS) & 0xFF);
+
+    return rx_byte;
+}
+
+/* =========================
+   Main SPI request function
+   ========================= */
+
+void spi_request_text_from_esp(void)
+{
+    uint8_t start_byte;
+    uint8_t text_len;
+    int i;
+
+    for (i = 0; i < SPI_MAX_TEXT_LEN + 1; i++) {
+        spi_rx_text[i] = '\0';
     }
 
-    // copy the message safely into local buffer
-    strncpy(tx_message, message, SPI_MAX_MSG_LEN);
-    tx_message[SPI_MAX_MSG_LEN] = '\0';
-    msg_len = strlen(tx_message);
+    printf("SPI: sending request byte 0x%02X\n", SPI_REQUEST_BYTE);
+    fflush(stdout);
 
-    if (msg_len <= 0) {
-        return;
-    }
+    /*
+       Transaction 1:
+       FPGA sends request byte 0x5F to ESP.
+    */
+    spi_begin_transaction();
+    spi_transfer_byte(SPI_REQUEST_BYTE);
+    spi_end_transaction();
 
-    spi_clear_errors();
+    /*
+       Small delay so ESP can prepare the reply packet.
+    */
+    usleep(50000);
 
-    // first transaction: send the whole message to slave
+    printf("SPI: reading reply packet\n");
+    fflush(stdout);
+
+    /*
+       Transaction 2:
+       FPGA sends dummy bytes to clock back:
+       [0] = start byte
+       [1] = length
+       [2..] = text
+    */
     spi_begin_transaction();
 
-    for (i = 0; i < msg_len; i++) {
-        // received byte is ignored here, so store in throwaway
-        if (!spi_transfer_byte((uint8_t)tx_message[i], &throwaway)) {
-            spi_end_transaction();
-            return;
-        }
+    start_byte = spi_transfer_byte(SPI_DUMMY_BYTE);
+    text_len   = spi_transfer_byte(SPI_DUMMY_BYTE);
+
+    if (text_len > SPI_MAX_TEXT_LEN) {
+        text_len = SPI_MAX_TEXT_LEN;
+    }
+
+    for (i = 0; i < text_len; i++) {
+        spi_rx_text[i] = (char)spi_transfer_byte(SPI_DUMMY_BYTE);
     }
 
     spi_end_transaction();
 
-    // optional wait in case slave needs time to prepare reply
-    // usleep(ESP_REPLY_WAIT_US);
+    spi_rx_text[text_len] = '\0';
 
-    spi_clear_errors();
+    printf("SPI: start byte received = 0x%02X\n", start_byte);
+    printf("SPI: length received     = %u\n", text_len);
+    printf("SPI: text received       = %s\n", spi_rx_text);
+    fflush(stdout);
 
-    // second transaction: send dummy bytes to read reply back
-    spi_begin_transaction();
+    if (start_byte == SPI_START_BYTE && text_len > 0) {
+        sdram_store_text(spi_rx_text);
 
-    for (i = 0; i < msg_len; i++) {
-        // sending 0x00 just generates clock so slave can return data
-        if (!spi_transfer_byte(0x00, &rx_byte)) {
-            spi_end_transaction();
-            return;
-        }
-        rx_message[i] = (char)rx_byte;
-    }
+        printf("SPI: text stored into SDRAM at 0x%08X\n", TEXT_BUFFER_BASE);
+        printf("SPI: STATUS_TEXT_READY set to 1\n");
+        fflush(stdout);
+    } else {
+        printf("SPI: invalid packet, text not stored\n");
+        fflush(stdout);
 
-    spi_end_transaction();
-
-    // add null terminator so rx_message becomes a proper C string
-    rx_message[msg_len] = '\0';
-
-    // mark valid only if reply matches original message
-    if (memcmp(rx_message, tx_message, msg_len) == 0) {
-        spi_valid = 1;
+        sdram_write_status(STATUS_LAST_ERROR, 1);
     }
 }
 
-// Not used for now because this SPI code is blocking
-int spi_is_busy(void)
+const char *spi_get_latest_text(void)
 {
-    return 0;
-}
-
-// Returns whether latest message received is valid
-int spi_has_valid_message(void)
-{
-    return spi_valid;
-}
-
-// Copies received message into user buffer
-void spi_get_message(char *buf, int max_len)
-{
-    int n;
-
-    if (!buf || max_len <= 0) {
-        return;
-    }
-
-    if (!spi_valid) {
-        buf[0] = '\0';
-        return;
-    }
-
-    n = strlen(rx_message);
-    if (n > max_len - 1) {
-        n = max_len - 1;
-    }
-
-    memcpy(buf, rx_message, n);
-    buf[n] = '\0';
+    return spi_rx_text;
 }

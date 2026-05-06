@@ -8,6 +8,7 @@
 
 static int animation_offset = 0;
 
+
 // Delay
 static void delay(int loops) {
     volatile int i;
@@ -18,6 +19,9 @@ static void delay(int loops) {
 
 // Paint pixels on the monitor
 static void draw_pixel(int x, int y, unsigned char color) {
+	// Returns null if said accelerometer detected is exceeding set width and height
+	if (x < 0 || x >= VGA_WIDTH || y < 0 || y >= VGA_HEIGHT) return;
+
     // Converts 2D grid to 1D to be read by memory
     int address = x + (y * VGA_WIDTH);
 
@@ -31,26 +35,26 @@ static void draw_pixel(int x, int y, unsigned char color) {
     IOWR_32DIRECT(PIO_WREN_BASE, 0, 0);
 }
 
-// Draw patterns test
-static void draw_flowing_stripes(int offset) {
-    int x, y;
-
-    for (y = 0; y < VGA_HEIGHT; y++) {
-        for (x = 0; x < VGA_WIDTH; x++) {
-
-            // Creates chunks
-            unsigned char color = ((x + y + offset) / 20) & 0x0F;
-
-            draw_pixel(x, y, color);
-        }
-    }
-}
-
 void vga_init(void) {
     IOWR_32DIRECT(PIO_WREN_BASE, 0, 0);
     animation_offset = 0;
 }
 
-void vga_step(void) {
-    draw_flowing_stripes(animation_offset);
+void vga_fill_background(unsigned char bg_color) {
+    int x, y;
+    for (y = 0; y < VGA_HEIGHT; y++) {
+        for (x = 0; x < VGA_WIDTH; x++) {
+            draw_pixel(x, y, bg_color);
+        }
+    }
+}
+
+// Draws a nice big 9x9 box at the exact coordinates you tell it
+void vga_draw_box(int center_x, int center_y, unsigned char color) {
+    int i, j;
+    for(i = -4; i <= 4; i++) {
+        for(j = -4; j <= 4; j++) {
+            draw_pixel(center_x + i, center_y + j, color);
+        }
+    }
 }

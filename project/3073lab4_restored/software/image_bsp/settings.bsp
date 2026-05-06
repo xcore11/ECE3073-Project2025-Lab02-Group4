@@ -2,8 +2,8 @@
 <sch:Settings xmlns:sch="http://www.altera.com/embeddedsw/bsp/schema">
         <BspType>hal</BspType>
         <BspVersion>default</BspVersion>
-        <BspGeneratedTimeStamp>May 1, 2026 4:08:31 AM</BspGeneratedTimeStamp>
-        <BspGeneratedUnixTimeStamp>1777579711731</BspGeneratedUnixTimeStamp>
+        <BspGeneratedTimeStamp>May 3, 2026 7:41:38 PM</BspGeneratedTimeStamp>
+        <BspGeneratedUnixTimeStamp>1777808498759</BspGeneratedUnixTimeStamp>
         <BspGeneratedLocation>C:\temp\ECE3073-Project2025-Lab02-Group4\project\3073lab4_restored\software\image_bsp</BspGeneratedLocation>
         <BspSettingsFile>settings.bsp</BspSettingsFile>
         <SopcDesignFile>..\..\NIOSII_WEEK3.sopcinfo</SopcDesignFile>
@@ -899,74 +899,74 @@
                 <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
         </Setting>
         <LinkerRegion>
-                <regionName>new_sdram_controller_0</regionName>
-                <memoryName>new_sdram_controller_0</memoryName>
-                <offset>1048576</offset>
-                <size>1048576</size>
-                <baseAddress>0x100000</baseAddress>
-                <addressRange>0x00100000 - 0x001FFFFF</addressRange>
-        </LinkerRegion>
-        <LinkerRegion>
                 <regionName>reset</regionName>
                 <memoryName>image_mem</memoryName>
                 <offset>0</offset>
                 <size>32</size>
-                <baseAddress>0x4004000</baseAddress>
-                <addressRange>0x04004000 - 0x0400401F</addressRange>
+                <baseAddress>0x4000</baseAddress>
+                <addressRange>0x00004000 - 0x0000401F</addressRange>
         </LinkerRegion>
         <LinkerRegion>
                 <regionName>image_mem</regionName>
                 <memoryName>image_mem</memoryName>
                 <offset>32</offset>
                 <size>16352</size>
-                <baseAddress>0x4004020</baseAddress>
-                <addressRange>0x04004020 - 0x04007FFF</addressRange>
+                <baseAddress>0x4020</baseAddress>
+                <addressRange>0x00004020 - 0x00007FFF</addressRange>
+        </LinkerRegion>
+        <LinkerRegion>
+                <regionName>new_sdram_controller_0</regionName>
+                <memoryName>new_sdram_controller_0</memoryName>
+                <offset>1048576</offset>
+                <size>1048576</size>
+                <baseAddress>0x4100000</baseAddress>
+                <addressRange>0x04100000 - 0x041FFFFF</addressRange>
         </LinkerRegion>
         <MemoryMap>
-                <slaveDescriptor>new_sdram_controller_0</slaveDescriptor>
-                <addressRange>0x00000000 - 0x03FFFFFF</addressRange>
-                <addressSpan>67108864</addressSpan>
-                <attributes>memory</attributes>
-        </MemoryMap>
-        <MemoryMap>
                 <slaveDescriptor>image_mem</slaveDescriptor>
-                <addressRange>0x04004000 - 0x04007FFF</addressRange>
+                <addressRange>0x00004000 - 0x00007FFF</addressRange>
                 <addressSpan>16384</addressSpan>
                 <attributes>memory</attributes>
         </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>spi_0</slaveDescriptor>
-                <addressRange>0x04009020 - 0x0400903F</addressRange>
+                <addressRange>0x00009020 - 0x0000903F</addressRange>
                 <addressSpan>32</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>img_IRQ_rx</slaveDescriptor>
-                <addressRange>0x04009070 - 0x0400907F</addressRange>
+                <addressRange>0x00009070 - 0x0000907F</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>img_IRQ_tx</slaveDescriptor>
-                <addressRange>0x04009080 - 0x0400908F</addressRange>
+                <addressRange>0x00009080 - 0x0000908F</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>pio_spi_select</slaveDescriptor>
-                <addressRange>0x04009090 - 0x0400909F</addressRange>
+                <addressRange>0x00009090 - 0x0000909F</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>jtag_image</slaveDescriptor>
-                <addressRange>0x040090A8 - 0x040090AF</addressRange>
+                <addressRange>0x000090A8 - 0x000090AF</addressRange>
                 <addressSpan>8</addressSpan>
                 <attributes>printable</attributes>
         </MemoryMap>
         <MemoryMap>
+                <slaveDescriptor>new_sdram_controller_0</slaveDescriptor>
+                <addressRange>0x04000000 - 0x07FFFFFF</addressRange>
+                <addressSpan>67108864</addressSpan>
+                <attributes>memory</attributes>
+        </MemoryMap>
+        <MemoryMap>
                 <slaveDescriptor>mutex_0</slaveDescriptor>
-                <addressRange>0x04011210 - 0x04011217</addressRange>
+                <addressRange>0x08011208 - 0x0801120F</addressRange>
                 <addressSpan>8</addressSpan>
                 <attributes/>
         </MemoryMap>

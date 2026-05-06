@@ -2,9 +2,9 @@
 <sch:Settings xmlns:sch="http://www.altera.com/embeddedsw/bsp/schema">
         <BspType>hal</BspType>
         <BspVersion>default</BspVersion>
-        <BspGeneratedTimeStamp>May 1, 2026 4:08:36 AM</BspGeneratedTimeStamp>
-        <BspGeneratedUnixTimeStamp>1777579716015</BspGeneratedUnixTimeStamp>
-        <BspGeneratedLocation>C:\temp\ECE3073-Project2025-Lab02-Group4\project\3073lab4_restored\software\vga_bsp</BspGeneratedLocation>
+        <BspGeneratedTimeStamp>May 4, 2026 2:41:48 PM</BspGeneratedTimeStamp>
+        <BspGeneratedUnixTimeStamp>1777876908789</BspGeneratedUnixTimeStamp>
+        <BspGeneratedLocation>C:\ECE3073\ECE4078_Lab_2025\ECE3073-Project2025-Lab02-Group4\project\3073lab4_restored\software\vga_bsp</BspGeneratedLocation>
         <BspSettingsFile>settings.bsp</BspSettingsFile>
         <SopcDesignFile>..\..\NIOSII_WEEK3.sopcinfo</SopcDesignFile>
         <JdiFile>default</JdiFile>
@@ -899,92 +899,92 @@
                 <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
         </Setting>
         <LinkerRegion>
-                <regionName>new_sdram_controller_0</regionName>
-                <memoryName>new_sdram_controller_0</memoryName>
-                <offset>2097152</offset>
-                <size>1048576</size>
-                <baseAddress>0x200000</baseAddress>
-                <addressRange>0x00200000 - 0x002FFFFF</addressRange>
-        </LinkerRegion>
-        <LinkerRegion>
                 <regionName>reset</regionName>
                 <memoryName>vga_mem</memoryName>
                 <offset>0</offset>
                 <size>32</size>
-                <baseAddress>0x4004000</baseAddress>
-                <addressRange>0x04004000 - 0x0400401F</addressRange>
+                <baseAddress>0x4000</baseAddress>
+                <addressRange>0x00004000 - 0x0000401F</addressRange>
         </LinkerRegion>
         <LinkerRegion>
                 <regionName>vga_mem</regionName>
                 <memoryName>vga_mem</memoryName>
                 <offset>32</offset>
                 <size>16352</size>
-                <baseAddress>0x4004020</baseAddress>
-                <addressRange>0x04004020 - 0x04007FFF</addressRange>
+                <baseAddress>0x4020</baseAddress>
+                <addressRange>0x00004020 - 0x00007FFF</addressRange>
+        </LinkerRegion>
+        <LinkerRegion>
+                <regionName>new_sdram_controller_0</regionName>
+                <memoryName>new_sdram_controller_0</memoryName>
+                <offset>2097152</offset>
+                <size>1048576</size>
+                <baseAddress>0x4200000</baseAddress>
+                <addressRange>0x04200000 - 0x042FFFFF</addressRange>
         </LinkerRegion>
         <MemoryMap>
-                <slaveDescriptor>new_sdram_controller_0</slaveDescriptor>
-                <addressRange>0x00000000 - 0x03FFFFFF</addressRange>
-                <addressSpan>67108864</addressSpan>
-                <attributes>memory</attributes>
-        </MemoryMap>
-        <MemoryMap>
                 <slaveDescriptor>vga_mem</slaveDescriptor>
-                <addressRange>0x04004000 - 0x04007FFF</addressRange>
+                <addressRange>0x00004000 - 0x00007FFF</addressRange>
                 <addressSpan>16384</addressSpan>
                 <attributes>memory</attributes>
         </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>vga_IRQ_rx</slaveDescriptor>
-                <addressRange>0x04009060 - 0x0400906F</addressRange>
+                <addressRange>0x00009060 - 0x0000906F</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>vga_IRQ_tx</slaveDescriptor>
-                <addressRange>0x04009070 - 0x0400907F</addressRange>
+                <addressRange>0x00009070 - 0x0000907F</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>pio_pixeldata</slaveDescriptor>
-                <addressRange>0x04009080 - 0x0400908F</addressRange>
+                <addressRange>0x00009080 - 0x0000908F</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>pio_camready</slaveDescriptor>
-                <addressRange>0x04009090 - 0x0400909F</addressRange>
+                <addressRange>0x00009090 - 0x0000909F</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>pio_ImgAddr</slaveDescriptor>
-                <addressRange>0x040090A0 - 0x040090AF</addressRange>
+                <addressRange>0x000090A0 - 0x000090AF</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>pio_wren</slaveDescriptor>
-                <addressRange>0x040090B0 - 0x040090BF</addressRange>
+                <addressRange>0x000090B0 - 0x000090BF</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>jtag_vga</slaveDescriptor>
-                <addressRange>0x040090C8 - 0x040090CF</addressRange>
+                <addressRange>0x000090C8 - 0x000090CF</addressRange>
                 <addressSpan>8</addressSpan>
                 <attributes>printable</attributes>
         </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>accelerometer_spi_0</slaveDescriptor>
-                <addressRange>0x040090D2 - 0x040090D3</addressRange>
+                <addressRange>0x000090D0 - 0x000090D1</addressRange>
                 <addressSpan>2</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
+                <slaveDescriptor>new_sdram_controller_0</slaveDescriptor>
+                <addressRange>0x04000000 - 0x07FFFFFF</addressRange>
+                <addressSpan>67108864</addressSpan>
+                <attributes>memory</attributes>
+        </MemoryMap>
+        <MemoryMap>
                 <slaveDescriptor>mutex_0</slaveDescriptor>
-                <addressRange>0x04011210 - 0x04011217</addressRange>
+                <addressRange>0x08011208 - 0x0801120F</addressRange>
                 <addressSpan>8</addressSpan>
                 <attributes/>
         </MemoryMap>
