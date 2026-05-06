@@ -94,6 +94,22 @@ ECE3073-Project2025-Lab02-Group4/
 ---
 
 ### Milestone 2: Image Convolution & SPI-Gyro
+- [x] Updated NIOS II Hardware Setup (WC)
+   - [x] Delegation of tasks is completed
+- [x] Switches & Pushbutton interrupt completed (SEAN)
+- [x] VGA connection to Accelerometer completed (LX)
+- [x] Training of AI model and storing image to SDRAM completed (WC)
+- [x] System Integration & Progress Checkup
+   - [x] Meeting #3 at 4/5/2026
+      - [x] Inclusion of GPIO toggling for latency measurement (SEAN)
+      - [x] VGA display formatting (LX)
+      - [x] Further training of the AI model for reliability (WC)
+- [x] System Integration
+   - [x] Meeting #4 at 5/5/2026
+      - [x] Integration testing of control core & image core (SEAN + WC)
+      - [x] VGA display is able to show SDRAM image (LX)
+      - [x] Further updates to the NIOS II Hardware (WC)
+- [x] System Integration successful and Tried on Meeting #5 6/5/2026
 
 ---
 
