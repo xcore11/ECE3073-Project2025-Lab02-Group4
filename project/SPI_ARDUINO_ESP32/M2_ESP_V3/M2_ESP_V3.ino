@@ -72,7 +72,6 @@ bool imageUpdatedAfterFourRows = false;
    until captureActive is true.
 */
 volatile bool captureActive = false;
-
 /* =========================
    RTOS SPI trigger flags
    ========================= */

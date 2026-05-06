@@ -63,6 +63,14 @@
 #define SPI_PACKET_MAGIC0       'G'
 #define SPI_PACKET_MAGIC1       'V'
 
+#ifndef IMAGE_BUFFER_BASE
+#define IMAGE_BUFFER_BASE       0x0520A000
+#endif
+
+#ifndef IMAGE_BUFFER_SIZE
+#define IMAGE_BUFFER_SIZE       32768
+#endif
+
 static char spi_rx_text[TEXT_BUFFER_SIZE];
 static uint32_t latest_packet_length = 0;
 
@@ -95,7 +103,12 @@ static uint32_t round_up_4(uint32_t value)
 
 static void sdram_write_status(uint32_t offset, uint32_t value)
 {
-    IOWR_32DIRECT(STATUS_BASE, offset, value);
+    /*
+       Internal 32-bit status registers live at STATUS_REG_BASE.
+       Do not write these into STATUS_BASE, because STATUS_BASE is the
+       24-byte packet header area that VGA reads.
+    */
+    IOWR_32DIRECT(STATUS_REG_BASE, offset, value);
 }
 
 static void sdram_clear_text(void)
@@ -158,6 +171,95 @@ static void sdram_clear_packet_region(uint32_t count)
     }
 }
 
+static void sdram_clear_status_header(void)
+{
+    uint32_t i;
+
+    for (i = 0; i < SPI_PACKET_HEADER_SIZE; i++) {
+        IOWR_8DIRECT(STATUS_BASE, i, 0);
+    }
+}
+
+static void sdram_store_status_header_from_packet(void)
+{
+    uint32_t i;
+
+    /*
+       Copy the first 24 packet bytes to STATUS_BASE.
+       VGA reads this and expects STATUS_BASE[0..1] == 'G''V'.
+    */
+    for (i = 0; i < SPI_PACKET_HEADER_SIZE; i++) {
+        IOWR_8DIRECT(STATUS_BASE, i, sdram_read_packet_byte(i));
+    }
+}
+
+
+static void sdram_store_image_byte(uint32_t index, uint8_t value)
+{
+    IOWR_8DIRECT(IMAGE_BUFFER_BASE, index, value);
+}
+
+static uint8_t sdram_read_image_byte(uint32_t index)
+{
+    return (uint8_t)(IORD_8DIRECT(IMAGE_BUFFER_BASE, index) & 0xFF);
+}
+
+static void sdram_clear_image_region(uint32_t count)
+{
+    uint32_t i;
+
+    if (count > IMAGE_BUFFER_SIZE) {
+        count = IMAGE_BUFFER_SIZE;
+    }
+
+    for (i = 0; i < count; i++) {
+        IOWR_8DIRECT(IMAGE_BUFFER_BASE, i, 0);
+    }
+}
+
+static void print_sdram_image_first_last20(uint32_t image_len)
+{
+    uint32_t i;
+    uint32_t start;
+    uint32_t first_count;
+
+    printf("========== FPGA SDRAM IMAGE COMPARE ==========\n");
+    printf("IMAGE_BUFFER_BASE=0x%08X\n", IMAGE_BUFFER_BASE);
+    printf("image_len=%lu\n", (unsigned long)image_len);
+
+    if (image_len == 0) {
+        printf("first20=<none>\n");
+        printf("last20=<none>\n");
+        printf("==============================================\n");
+        fflush(stdout);
+        return;
+    }
+
+    first_count = image_len < 20 ? image_len : 20;
+
+    printf("first20=");
+    for (i = 0; i < first_count; i++) {
+        printf("%02X", sdram_read_image_byte(i));
+        if (i + 1 < first_count) {
+            printf(" ");
+        }
+    }
+    printf("\n");
+
+    start = image_len > 20 ? image_len - 20 : 0;
+
+    printf("last20=");
+    for (i = start; i < image_len; i++) {
+        printf("%02X", sdram_read_image_byte(i));
+        if (i + 1 < image_len) {
+            printf(" ");
+        }
+    }
+    printf("\n");
+    printf("==============================================\n");
+    fflush(stdout);
+}
+
 /* =========================
    Basic SPI helpers
    ========================= */
@@ -171,6 +273,8 @@ void spi_init_manual(void)
 
     sdram_clear_text();
     sdram_clear_packet_region(256);
+    sdram_clear_status_header();
+    sdram_clear_image_region(IMAGE_BUFFER_SIZE);
 
     sdram_write_status(STATUS_TEXT_READY, 0);
     sdram_write_status(STATUS_CMD_READY, 0);
@@ -275,11 +379,38 @@ static int store_text_and_metadata_from_packet(uint32_t packet_len)
     }
 
     /*
+       Copy the real 24-byte ESP packet header to STATUS_BASE for VGA.
+       This is what fixes VGA seeing random magic like 0x0E 0x0C.
+    */
+    sdram_store_status_header_from_packet();
+
+    /*
        This only copies the already-recognized text bytes from the ESP packet
        into TEXT_BUFFER_BASE. It does not run decoder.c or convert the text
        into peripheral instructions.
     */
     sdram_store_text_bytes((const uint8_t *)(SPI_PACKET_BASE + header_len), text_len);
+
+    /*
+       Copy the raw grayscale image payload into a separate SDRAM image buffer
+       so VGA/debug code can read it directly without parsing the packet.
+    */
+    sdram_clear_image_region(IMAGE_BUFFER_SIZE);
+
+    if (image_len > 0) {
+        uint32_t image_src_offset = (uint32_t)header_len + (uint32_t)text_len;
+        uint32_t copy_len = image_len;
+
+        if (copy_len > IMAGE_BUFFER_SIZE) {
+            copy_len = IMAGE_BUFFER_SIZE;
+        }
+
+        for (i = 0; i < copy_len; i++) {
+            sdram_store_image_byte(i, sdram_read_packet_byte(image_src_offset + i));
+        }
+    }
+
+    print_sdram_image_first_last20(image_len);
 
     sdram_write_status(STATUS_PACKET_READY, 1);
     sdram_write_status(STATUS_PACKET_LENGTH, packet_len);
@@ -302,6 +433,8 @@ static int store_text_and_metadata_from_packet(uint32_t packet_len)
            flags);
     printf("SPI: text stored at TEXT_BUFFER_BASE=[%s]\n", spi_rx_text);
     printf("SPI: full packet stored at SPI_PACKET_BASE=0x%08X\n", SPI_PACKET_BASE);
+    printf("SPI: header copied to STATUS_BASE=0x%08X\n", STATUS_BASE);
+    printf("SPI: raw image stored at IMAGE_BUFFER_BASE=0x%08X\n", IMAGE_BUFFER_BASE);
     fflush(stdout);
 
     return 1;
@@ -319,7 +452,7 @@ static int store_text_and_metadata_from_packet(uint32_t packet_len)
 #define SPI_LEN_READ_BYTES          8
 #define SPI_PACKET_READ_EXTRA_BYTES 4
 
-#define SPI_LENGTH_RETRY_COUNT      40
+#define SPI_LENGTH_RETRY_COUNT      20
 #define SPI_LENGTH_RETRY_DELAY_US   500000
 #define SPI_ESP_QUEUE_DELAY_US      2000
 #define SPI_CAPTURE_WAIT_US         5000000

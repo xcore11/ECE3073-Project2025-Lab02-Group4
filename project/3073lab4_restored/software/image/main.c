@@ -56,6 +56,22 @@ static void img_irq_rx_setup(void)
     IOWR_ALTERA_AVALON_PIO_IRQ_MASK(IMG_IRQ_RX_BASE, IMG_IRQ_ACTIVE_MASK);
 }
 
+static void img_irq_tx_set_true(void)
+{
+    /*
+       Tell the other side SPI/text processing is done.
+    */
+    IOWR_ALTERA_AVALON_PIO_DATA(IMG_IRQ_TX_BASE, 1);
+}
+
+static void img_irq_tx_set_false(void)
+{
+    /*
+       Reset TX trigger back to low.
+    */
+    IOWR_ALTERA_AVALON_PIO_DATA(IMG_IRQ_TX_BASE, 0);
+}
+
 int main(void)
 {
     printf("FPGA SPI DMA-ESP integration test started\n");
@@ -63,6 +79,12 @@ int main(void)
     fflush(stdout);
 
     spi_init_manual();
+
+    /*
+       Make sure IMG_IRQ_TX starts low.
+    */
+    img_irq_tx_set_false();
+
     img_irq_rx_setup();
 
     printf("Ready. Waiting for IMG_IRQ_RX interrupt...\n");
@@ -78,7 +100,20 @@ int main(void)
             printf("interrupted, trigger_count=%u\n", trigger_count);
             fflush(stdout);
 
+            /*
+               Clear done signal before starting new SPI transaction.
+            */
+            img_irq_tx_set_false();
+
+            /*
+               Do SPI request.
+            */
             spi_request_text_from_esp();
+
+            /*
+               SPI is done, set IMG_IRQ_TX to true.
+            */
+            img_irq_tx_set_true();
 
             /*
                Optional: wait until the trigger signal goes low before accepting another.
