@@ -2,9 +2,9 @@
 <sch:Settings xmlns:sch="http://www.altera.com/embeddedsw/bsp/schema">
         <BspType>hal</BspType>
         <BspVersion>default</BspVersion>
-        <BspGeneratedTimeStamp>May 4, 2026 2:41:48 PM</BspGeneratedTimeStamp>
-        <BspGeneratedUnixTimeStamp>1777876908789</BspGeneratedUnixTimeStamp>
-        <BspGeneratedLocation>C:\ECE3073\ECE4078_Lab_2025\ECE3073-Project2025-Lab02-Group4\project\3073lab4_restored\software\vga_bsp</BspGeneratedLocation>
+        <BspGeneratedTimeStamp>May 6, 2026 8:53:06 AM</BspGeneratedTimeStamp>
+        <BspGeneratedUnixTimeStamp>1778028786307</BspGeneratedUnixTimeStamp>
+        <BspGeneratedLocation>C:\temp\ECE3073-Project2025-Lab02-Group4\project\3073lab4_restored\software\vga_bsp</BspGeneratedLocation>
         <BspSettingsFile>settings.bsp</BspSettingsFile>
         <SopcDesignFile>..\..\NIOSII_WEEK3.sopcinfo</SopcDesignFile>
         <JdiFile>default</JdiFile>
@@ -917,10 +917,10 @@
         <LinkerRegion>
                 <regionName>new_sdram_controller_0</regionName>
                 <memoryName>new_sdram_controller_0</memoryName>
-                <offset>2097152</offset>
-                <size>1048576</size>
-                <baseAddress>0x4200000</baseAddress>
-                <addressRange>0x04200000 - 0x042FFFFF</addressRange>
+                <offset>3145728</offset>
+                <size>2097152</size>
+                <baseAddress>0x4300000</baseAddress>
+                <addressRange>0x04300000 - 0x044FFFFF</addressRange>
         </LinkerRegion>
         <MemoryMap>
                 <slaveDescriptor>vga_mem</slaveDescriptor>

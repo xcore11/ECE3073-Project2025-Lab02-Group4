@@ -4,7 +4,7 @@
  * Machine generated for CPU 'vga_proc' in SOPC Builder design 'NIOSII_WEEK3'
  * SOPC Builder design path: ../../NIOSII_WEEK3.sopcinfo
  *
- * Generated: Mon May 04 14:30:15 SGT 2026
+ * Generated: Wed May 06 08:52:57 SGT 2026
  */
 
 /*
@@ -65,8 +65,8 @@
  *
  */
 
-#define NEW_SDRAM_CONTROLLER_0_REGION_BASE 0x4200000
-#define NEW_SDRAM_CONTROLLER_0_REGION_SPAN 1048576
+#define NEW_SDRAM_CONTROLLER_0_REGION_BASE 0x4300000
+#define NEW_SDRAM_CONTROLLER_0_REGION_SPAN 2097152
 #define RESET_REGION_BASE 0x4000
 #define RESET_REGION_SPAN 32
 #define VGA_MEM_REGION_BASE 0x4020

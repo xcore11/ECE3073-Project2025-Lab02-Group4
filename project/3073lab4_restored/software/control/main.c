@@ -14,29 +14,6 @@
 
 int main(void)
 {
-	printf("SPI dummy byte test started\n");
-	// Input Para
-    int switch_state = 0;
-    int key_state = 0;
-    int pb1_pressed = 0;
-    int pb1_armed = 1;
-    int pb2_pressed = 0;
-    int pb2_armed = 1;
-    int vga_enabled = 0;
-
-    // Setup Accel Parameters
-    int x, y, z;
-    int accel_counter = ACCEL_THRESHOLD;
-
-//    // Failed Accel Initialization Check
-//    if (accel_init() != 0) {
-//        printf("Accelerometer init failed\n");
-//        while (1);
-//    }
-
-//    // Declare SPI MSG buffer
-//    char spi_msg[USER_MESSAGE_LENGTH + 1];
-
     // Setup Traffic Light
     int traffic_counter = 0;
     int traffic_state = 0;   /* 0=green, 1=yellow, 2=red */

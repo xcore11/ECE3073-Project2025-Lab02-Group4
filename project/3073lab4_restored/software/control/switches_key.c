@@ -4,7 +4,6 @@
 #include <stdio.h>
 #include <string.h>
 #include "control.h"
-
 volatile int switch_state = 0;
 volatile int key_state = 0;
 volatile int GPIO_state = 0;
@@ -12,6 +11,15 @@ static int HEX_enable_bit = 0;
 static int scroll_counter = 0;
 static int scroll_offset = 0;
 const int scroll_speed = 2000;
+#define CON_IMG_IRQ_RX_IRQ_INTERRUPT_CONTROLLER_ID 0
+#define CON_IMG_IRQ_RX_BASE 0x8011120
+#define CON_VGA_IRQ_RX_IRQ_INTERRUPT_CONTROLLER_ID 0
+#define CON_VGA_IRQ_RX_BASE 0x8011100
+#define CON_IMG_IRQ_TX_IRQ_INTERRUPT_CONTROLLER_ID -1
+#define CON_IMG_IRQ_TX_BASE 0x8011130
+#define CON_VGA_IRQ_TX_BASE 0x8011110
+#define CON_IMG_IRQ_RX_IRQ 3
+#define CON_VGA_IRQ_RX_IRQ 4
 
 static void switch_isr(void* context) {
     // Clear the edge capture register
