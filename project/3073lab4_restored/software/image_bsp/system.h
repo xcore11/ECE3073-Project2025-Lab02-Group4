@@ -4,7 +4,7 @@
  * Machine generated for CPU 'image_proc' in SOPC Builder design 'NIOSII_WEEK3'
  * SOPC Builder design path: ../../NIOSII_WEEK3.sopcinfo
  *
- * Generated: Tue May 05 16:46:44 SGT 2026
+ * Generated: Tue May 19 23:04:31 SGT 2026
  */
 
 /*
@@ -151,6 +151,33 @@
 
 
 /*
+ * ESP_data_ready configuration
+ *
+ */
+
+#define ALT_MODULE_CLASS_ESP_data_ready altera_avalon_pio
+#define ESP_DATA_READY_BASE 0x9080
+#define ESP_DATA_READY_BIT_CLEARING_EDGE_REGISTER 0
+#define ESP_DATA_READY_BIT_MODIFYING_OUTPUT_REGISTER 0
+#define ESP_DATA_READY_CAPTURE 1
+#define ESP_DATA_READY_DATA_WIDTH 1
+#define ESP_DATA_READY_DO_TEST_BENCH_WIRING 0
+#define ESP_DATA_READY_DRIVEN_SIM_VALUE 0
+#define ESP_DATA_READY_EDGE_TYPE "RISING"
+#define ESP_DATA_READY_FREQ 50000000
+#define ESP_DATA_READY_HAS_IN 1
+#define ESP_DATA_READY_HAS_OUT 0
+#define ESP_DATA_READY_HAS_TRI 0
+#define ESP_DATA_READY_IRQ 2
+#define ESP_DATA_READY_IRQ_INTERRUPT_CONTROLLER_ID 0
+#define ESP_DATA_READY_IRQ_TYPE "EDGE"
+#define ESP_DATA_READY_NAME "/dev/ESP_data_ready"
+#define ESP_DATA_READY_RESET_VALUE 0
+#define ESP_DATA_READY_SPAN 16
+#define ESP_DATA_READY_TYPE "altera_avalon_pio"
+
+
+/*
  * System configuration
  *
  */
@@ -166,19 +193,19 @@
 #define ALT_NUM_INTERNAL_INTERRUPT_CONTROLLERS 1
 #define ALT_NUM_INTERRUPT_CONTROLLERS 1
 #define ALT_STDERR "/dev/jtag_image"
-#define ALT_STDERR_BASE 0x90a8
+#define ALT_STDERR_BASE 0x90c8
 #define ALT_STDERR_DEV jtag_image
 #define ALT_STDERR_IS_JTAG_UART
 #define ALT_STDERR_PRESENT
 #define ALT_STDERR_TYPE "altera_avalon_jtag_uart"
 #define ALT_STDIN "/dev/jtag_image"
-#define ALT_STDIN_BASE 0x90a8
+#define ALT_STDIN_BASE 0x90c8
 #define ALT_STDIN_DEV jtag_image
 #define ALT_STDIN_IS_JTAG_UART
 #define ALT_STDIN_PRESENT
 #define ALT_STDIN_TYPE "altera_avalon_jtag_uart"
 #define ALT_STDOUT "/dev/jtag_image"
-#define ALT_STDOUT_BASE 0x90a8
+#define ALT_STDOUT_BASE 0x90c8
 #define ALT_STDOUT_DEV jtag_image
 #define ALT_STDOUT_IS_JTAG_UART
 #define ALT_STDOUT_PRESENT
@@ -232,7 +259,7 @@
  */
 
 #define ALT_MODULE_CLASS_img_IRQ_rx altera_avalon_pio
-#define IMG_IRQ_RX_BASE 0x9070
+#define IMG_IRQ_RX_BASE 0x9090
 #define IMG_IRQ_RX_BIT_CLEARING_EDGE_REGISTER 0
 #define IMG_IRQ_RX_BIT_MODIFYING_OUTPUT_REGISTER 0
 #define IMG_IRQ_RX_CAPTURE 1
@@ -244,7 +271,7 @@
 #define IMG_IRQ_RX_HAS_IN 1
 #define IMG_IRQ_RX_HAS_OUT 0
 #define IMG_IRQ_RX_HAS_TRI 0
-#define IMG_IRQ_RX_IRQ 2
+#define IMG_IRQ_RX_IRQ 4
 #define IMG_IRQ_RX_IRQ_INTERRUPT_CONTROLLER_ID 0
 #define IMG_IRQ_RX_IRQ_TYPE "EDGE"
 #define IMG_IRQ_RX_NAME "/dev/img_IRQ_rx"
@@ -259,7 +286,7 @@
  */
 
 #define ALT_MODULE_CLASS_img_IRQ_tx altera_avalon_pio
-#define IMG_IRQ_TX_BASE 0x9080
+#define IMG_IRQ_TX_BASE 0x90a0
 #define IMG_IRQ_TX_BIT_CLEARING_EDGE_REGISTER 0
 #define IMG_IRQ_TX_BIT_MODIFYING_OUTPUT_REGISTER 0
 #define IMG_IRQ_TX_CAPTURE 0
@@ -286,7 +313,7 @@
  */
 
 #define ALT_MODULE_CLASS_jtag_image altera_avalon_jtag_uart
-#define JTAG_IMAGE_BASE 0x90a8
+#define JTAG_IMAGE_BASE 0x90c8
 #define JTAG_IMAGE_IRQ 1
 #define JTAG_IMAGE_IRQ_INTERRUPT_CONTROLLER_ID 0
 #define JTAG_IMAGE_NAME "/dev/jtag_image"
@@ -361,7 +388,7 @@
  */
 
 #define ALT_MODULE_CLASS_pio_spi_select altera_avalon_pio
-#define PIO_SPI_SELECT_BASE 0x9090
+#define PIO_SPI_SELECT_BASE 0x90b0
 #define PIO_SPI_SELECT_BIT_CLEARING_EDGE_REGISTER 0
 #define PIO_SPI_SELECT_BIT_MODIFYING_OUTPUT_REGISTER 0
 #define PIO_SPI_SELECT_CAPTURE 0
