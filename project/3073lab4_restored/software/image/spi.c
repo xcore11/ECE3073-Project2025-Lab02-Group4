@@ -380,7 +380,7 @@ static int store_text_and_metadata_from_packet(uint32_t packet_len)
 
 #define SPI_LENGTH_RETRY_COUNT      5
 #define SPI_LENGTH_RETRY_DELAY_US   20000
-#define SPI_ESP_QUEUE_DELAY_US      50000
+#define SPI_ESP_QUEUE_DELAY_US      10000
 
 static void spi_send_command4(uint8_t cmd)
 {
@@ -548,10 +548,13 @@ void spi_request_text_from_esp(void)
 
         sdram_write_status(STATUS_LAST_ERROR, 8);
         latest_packet_length = 0;
-        spi_abort_packet_on_esp();
 
-        /* Prevent tight retry spam while ESP_DATA_READY is still high. */
-        usleep(50000);
+        /*
+           Realtime packet-queue mode:
+           Do NOT send 0xA3 automatically. Just return and let main try again
+           when ESP_DATA_READY is asserted later.
+        */
+        usleep(5000);
         return;
     }
 
@@ -568,7 +571,13 @@ void spi_request_text_from_esp(void)
 
     if (!store_text_and_metadata_from_packet(packet_len)) {
         latest_packet_length = 0;
-        spi_abort_packet_on_esp();
+
+        /*
+           Do NOT send 0xA3 on bad packet magic/format during realtime queue
+           streaming. If FPGA clocks before ESP has fully queued the next DMA
+           reply, the first bytes may be zero. Auto-abort would drop valid
+           queued rows on the ESP side.
+        */
         return;
     }
 

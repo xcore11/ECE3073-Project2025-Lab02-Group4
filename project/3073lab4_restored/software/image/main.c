@@ -11,31 +11,38 @@
 #include "decoder.h"
 
 /* ============================================================
-   IMAGE PROCESSOR MAIN
+   IMAGE PROCESSOR MAIN - EDGE SAFE PACKET READ
 
    IMG_IRQ_RX:
-       Used as SESSION START button.
+       Session-start button input.
 
    ESP_DATA_READY:
-       Used as ESP -> FPGA packet-ready interrupt.
+       ESP -> FPGA packet-ready signal.
 
-   Runtime flow:
-       1. Press IMG_IRQ_RX once
-       2. FPGA sends 0x5F to ESP
-       3. ESP raises ESP_DATA_READY when packet is ready
-       4. FPGA reads SPI packet
-       5. FPGA gets latest text chunk
-       6. decoder.c accumulates chunks and writes snake SDRAM mailbox
+   Important behaviour:
+       - FPGA sends 0x5F once after button.
+       - FPGA reads ONE packet when ESP_DATA_READY is high.
+       - FPGA does NOT spam-drain multiple packets inside one tight loop.
+       - FPGA does NOT depend only on IRQ edge; it also polls level.
+       - No long 50 ms sleep after successful packet.
+
+   This matches the ESP RTOS packet queue better than the old drain loop.
    ============================================================ */
 
-#define SESSION_BUTTON_MASK           0x01
-#define ESP_DATA_READY_ACTIVE_MASK    0x01
+#define SESSION_BUTTON_MASK              0x01
+#define ESP_DATA_READY_ACTIVE_MASK       0x01
 
-#define DEBUG_DECODER_PRINT           1
+#define DEBUG_DECODER_PRINT              1
+
+/*
+   Small guard after each packet read.
+   This gives the ESP SPI DMA task time to finish the previous transaction
+   and present/promote the next queued packet before FPGA asks again.
+*/
+#define FPGA_AFTER_PACKET_GUARD_US       5000
 
 static volatile int session_button_pending = 0;
 static volatile int esp_data_ready_pending = 0;
-
 static int session_started = 0;
 
 /* ============================================================
@@ -59,11 +66,11 @@ static void print_decoder_result(int result)
     }
     else if (result == DECODER_ERR_BAD_FORMAT)
     {
-        printf("Decoder error: bad command format\n");
+        printf("Decoder error: bad command format -> reset stream\n");
     }
     else if (result == DECODER_ERR_OUT_OF_RANGE)
     {
-        printf("Decoder error: coordinate out of snake grid range\n");
+        printf("Decoder error: coordinate out of snake grid range -> reset stream\n");
     }
     else if (result == DECODER_ERR_MAILBOX_BUSY)
     {
@@ -71,7 +78,7 @@ static void print_decoder_result(int result)
     }
     else
     {
-        printf("Decoder error: unknown result %d\n", result);
+        printf("Decoder error: unknown result %d -> reset stream\n", result);
     }
 #else
     (void)result;
@@ -80,7 +87,6 @@ static void print_decoder_result(int result)
 
 /* ============================================================
    SESSION START BUTTON IRQ
-   IMG_IRQ_RX is used as the session-start button.
    ============================================================ */
 
 static void session_button_isr(void *context)
@@ -92,10 +98,6 @@ static void session_button_isr(void *context)
         SESSION_BUTTON_MASK
     );
 
-    /*
-       Only first button press matters.
-       After session_started = 1, ignore button.
-    */
     if (!session_started)
     {
         session_button_pending = 1;
@@ -104,15 +106,8 @@ static void session_button_isr(void *context)
 
 static void session_button_setup(void)
 {
-    IOWR_ALTERA_AVALON_PIO_IRQ_MASK(
-        IMG_IRQ_RX_BASE,
-        0x0
-    );
-
-    IOWR_ALTERA_AVALON_PIO_EDGE_CAP(
-        IMG_IRQ_RX_BASE,
-        SESSION_BUTTON_MASK
-    );
+    IOWR_ALTERA_AVALON_PIO_IRQ_MASK(IMG_IRQ_RX_BASE, 0x0);
+    IOWR_ALTERA_AVALON_PIO_EDGE_CAP(IMG_IRQ_RX_BASE, SESSION_BUTTON_MASK);
 
 #if defined(IMG_IRQ_RX_IRQ) && defined(IMG_IRQ_RX_IRQ_INTERRUPT_CONTROLLER_ID)
     alt_ic_isr_register(
@@ -130,15 +125,8 @@ static void session_button_setup(void)
     );
 #endif
 
-    IOWR_ALTERA_AVALON_PIO_EDGE_CAP(
-        IMG_IRQ_RX_BASE,
-        SESSION_BUTTON_MASK
-    );
-
-    IOWR_ALTERA_AVALON_PIO_IRQ_MASK(
-        IMG_IRQ_RX_BASE,
-        SESSION_BUTTON_MASK
-    );
+    IOWR_ALTERA_AVALON_PIO_EDGE_CAP(IMG_IRQ_RX_BASE, SESSION_BUTTON_MASK);
+    IOWR_ALTERA_AVALON_PIO_IRQ_MASK(IMG_IRQ_RX_BASE, SESSION_BUTTON_MASK);
 }
 
 static int session_button_is_high(void)
@@ -151,7 +139,6 @@ static int session_button_is_high(void)
 
 /* ============================================================
    ESP DATA READY IRQ
-   ESP_DATA_READY is ESP -> FPGA packet-ready signal.
    ============================================================ */
 
 static void esp_data_ready_isr(void *context)
@@ -163,9 +150,6 @@ static void esp_data_ready_isr(void *context)
         ESP_DATA_READY_ACTIVE_MASK
     );
 
-    /*
-       Only accept packet-ready edges after session starts.
-    */
     if (session_started)
     {
         esp_data_ready_pending = 1;
@@ -174,15 +158,8 @@ static void esp_data_ready_isr(void *context)
 
 static void esp_data_ready_setup(void)
 {
-    IOWR_ALTERA_AVALON_PIO_IRQ_MASK(
-        ESP_DATA_READY_BASE,
-        0x0
-    );
-
-    IOWR_ALTERA_AVALON_PIO_EDGE_CAP(
-        ESP_DATA_READY_BASE,
-        ESP_DATA_READY_ACTIVE_MASK
-    );
+    IOWR_ALTERA_AVALON_PIO_IRQ_MASK(ESP_DATA_READY_BASE, 0x0);
+    IOWR_ALTERA_AVALON_PIO_EDGE_CAP(ESP_DATA_READY_BASE, ESP_DATA_READY_ACTIVE_MASK);
 
 #if defined(ESP_DATA_READY_IRQ) && defined(ESP_DATA_READY_IRQ_INTERRUPT_CONTROLLER_ID)
     alt_ic_isr_register(
@@ -200,15 +177,8 @@ static void esp_data_ready_setup(void)
     );
 #endif
 
-    IOWR_ALTERA_AVALON_PIO_EDGE_CAP(
-        ESP_DATA_READY_BASE,
-        ESP_DATA_READY_ACTIVE_MASK
-    );
-
-    IOWR_ALTERA_AVALON_PIO_IRQ_MASK(
-        ESP_DATA_READY_BASE,
-        ESP_DATA_READY_ACTIVE_MASK
-    );
+    IOWR_ALTERA_AVALON_PIO_EDGE_CAP(ESP_DATA_READY_BASE, ESP_DATA_READY_ACTIVE_MASK);
+    IOWR_ALTERA_AVALON_PIO_IRQ_MASK(ESP_DATA_READY_BASE, ESP_DATA_READY_ACTIVE_MASK);
 }
 
 static int esp_data_ready_is_high(void)
@@ -220,7 +190,7 @@ static int esp_data_ready_is_high(void)
 }
 
 /* ============================================================
-   FPGA -> VGA / OLD ACK LINE
+   OPTIONAL FPGA -> VGA / OLD ACK LINE
    ============================================================ */
 
 static void img_irq_tx_set_true(void)
@@ -238,40 +208,73 @@ static void img_irq_tx_set_false(void)
 }
 
 /* ============================================================
-   MAIN
+   READ EXACTLY ONE ESP PACKET
    ============================================================ */
 
-int main(void)
+static int read_one_esp_packet(void)
 {
     const char *rx_text;
     uint32_t packet_len;
     int decoder_result;
 
+    img_irq_tx_set_false();
+
+    spi_request_text_from_esp();
+    packet_len = spi_get_latest_packet_length();
+
+    if (packet_len == 0)
+    {
+        printf("SPI read failed or no packet\n");
+        fflush(stdout);
+        return 0;
+    }
+
+    rx_text = spi_get_latest_text();
+
+    if (rx_text == NULL || rx_text[0] == '\0')
+    {
+        printf("SPI packet_len=%lu, text empty\n", (unsigned long)packet_len);
+        fflush(stdout);
+        img_irq_tx_set_true();
+        return 1;
+    }
+
+    printf("SPI packet_len=%lu, text=[%s]\n", (unsigned long)packet_len, rx_text);
+    fflush(stdout);
+
+    decoder_result = decoder_decode_and_store_snake_command(rx_text);
+    print_decoder_result(decoder_result);
+
+    /*
+       If the stream is malformed, reset decoder so the next SNAKE header can
+       recover cleanly instead of staying poisoned forever.
+    */
+    if (decoder_result < 0 && decoder_result != DECODER_ERR_MAILBOX_BUSY)
+    {
+        decoder_reset_stream();
+    }
+
+    img_irq_tx_set_true();
+    return 1;
+}
+
+/* ============================================================
+   MAIN
+   ============================================================ */
+
+int main(void)
+{
     printf("========== IMAGE PROCESSOR MAIN ==========\n");
-    printf("SPI packet receive + streaming snake decoder enabled\n");
+    printf("SPI edge-safe packet read + streaming snake decoder enabled\n");
     printf("IMG_IRQ_RX = session start button\n");
-    printf("ESP_DATA_READY = packet ready interrupt\n");
+    printf("ESP_DATA_READY = packet ready trigger\n");
     printf("==========================================\n");
     fflush(stdout);
 
-    /*
-       Init SPI and clear SDRAM text/image/status buffers.
-    */
     spi_init_manual();
-
-    /*
-       Clear output IRQ / ACK line.
-    */
     img_irq_tx_set_false();
-
-    /*
-       Optional: reset decoder stream at boot.
-    */
     decoder_reset_stream();
 
-    /*
-       Setup both interrupts.
-    */
     session_button_setup();
     esp_data_ready_setup();
 
@@ -280,10 +283,6 @@ int main(void)
 
     while (1)
     {
-        /*
-           First button press starts realtime session.
-           This sends 0x5F to ESP once.
-        */
         if (session_button_pending && !session_started)
         {
             session_button_pending = 0;
@@ -294,134 +293,49 @@ int main(void)
 
             spi_send_session_start();
 
-            printf("ESP session start command sent. Waiting for ESP_DATA_READY edges.\n");
+            printf("ESP session start command sent. Waiting for ESP_DATA_READY.\n");
             fflush(stdout);
 
-            /*
-               Wait for button signal to release so old edges do not retrigger.
-            */
             while (session_button_is_high())
             {
                 usleep(1000);
             }
 
-            IOWR_ALTERA_AVALON_PIO_EDGE_CAP(
-                IMG_IRQ_RX_BASE,
-                SESSION_BUTTON_MASK
-            );
-
-            IOWR_ALTERA_AVALON_PIO_EDGE_CAP(
-                ESP_DATA_READY_BASE,
-                ESP_DATA_READY_ACTIVE_MASK
-            );
+            IOWR_ALTERA_AVALON_PIO_EDGE_CAP(IMG_IRQ_RX_BASE, SESSION_BUTTON_MASK);
+            IOWR_ALTERA_AVALON_PIO_EDGE_CAP(ESP_DATA_READY_BASE, ESP_DATA_READY_ACTIVE_MASK);
         }
 
-        /*
-           After session start:
-           ESP_DATA_READY rising edge means one packet is ready.
-        */
-        if (session_started && esp_data_ready_pending)
+        if (session_started)
         {
-            esp_data_ready_pending = 0;
-
             /*
-               If signal is already low, ignore this stale edge.
+               Use IRQ as a wake-up, but also poll the level.
+               This avoids missing a short edge if ESP promotes another packet.
+
+               Important: read only ONE packet here. Do not tight-loop drain.
             */
-            if (!esp_data_ready_is_high())
+            if (esp_data_ready_pending || esp_data_ready_is_high())
             {
-                IOWR_ALTERA_AVALON_PIO_EDGE_CAP(
-                    ESP_DATA_READY_BASE,
-                    ESP_DATA_READY_ACTIVE_MASK
-                );
+                esp_data_ready_pending = 0;
 
-                usleep(1000);
-                continue;
+                if (esp_data_ready_is_high())
+                {
+                    printf("ESP_DATA_READY high, reading one packet\n");
+                    fflush(stdout);
+                    read_one_esp_packet();
+
+                    IOWR_ALTERA_AVALON_PIO_EDGE_CAP(
+                        ESP_DATA_READY_BASE,
+                        ESP_DATA_READY_ACTIVE_MASK
+                    );
+
+                    /* Give ESP DMA task time to promote/present next packet. */
+                    usleep(FPGA_AFTER_PACKET_GUARD_US);
+                    continue;
+                }
             }
-
-            printf("ESP_DATA_READY edge received, reading one SPI packet\n");
-            fflush(stdout);
-
-            img_irq_tx_set_false();
-
-            /*
-               Your spi.c does:
-                   1. send 0xA1 length request
-                   2. read packet length
-                   3. send 0xA2 packet request
-                   4. read packet bytes
-                   5. store text/image/status into SDRAM
-                   6. update spi_get_latest_text()
-            */
-            spi_request_text_from_esp();
-
-            packet_len = spi_get_latest_packet_length();
-
-            if (packet_len == 0)
-            {
-                printf("SPI read failed; waiting for next ESP_DATA_READY edge\n");
-                fflush(stdout);
-
-                IOWR_ALTERA_AVALON_PIO_EDGE_CAP(
-                    ESP_DATA_READY_BASE,
-                    ESP_DATA_READY_ACTIVE_MASK
-                );
-
-                usleep(50000);
-                continue;
-            }
-
-            rx_text = spi_get_latest_text();
-
-            if (rx_text == NULL || rx_text[0] == '\0')
-            {
-                printf("SPI read OK, packet_len=%lu, text empty\n",
-                       (unsigned long)packet_len);
-                fflush(stdout);
-
-                img_irq_tx_set_true();
-
-                IOWR_ALTERA_AVALON_PIO_EDGE_CAP(
-                    ESP_DATA_READY_BASE,
-                    ESP_DATA_READY_ACTIVE_MASK
-                );
-
-                usleep(50000);
-                continue;
-            }
-
-            printf("SPI read OK, packet_len=%lu, text=[%s]\n",
-                   (unsigned long)packet_len,
-                   rx_text);
-            fflush(stdout);
-
-            /*
-               Streaming decoder handles split chunks, for example:
-                   s akeapp
-                   lex5y2x
-                   y10x5y18
-
-               It accumulates them into:
-                   SNAKEAPPLEX5Y2XY10X5Y18
-            */
-            decoder_result = decoder_decode_and_store_snake_command(rx_text);
-
-            print_decoder_result(decoder_result);
-
-            /*
-               Notify/ACK after handling packet.
-            */
-            img_irq_tx_set_true();
-
-            IOWR_ALTERA_AVALON_PIO_EDGE_CAP(
-                ESP_DATA_READY_BASE,
-                ESP_DATA_READY_ACTIVE_MASK
-            );
-
-            fflush(stdout);
-            usleep(50000);
         }
 
-        usleep(1000);
+        usleep(500);
     }
 
     return 0;
