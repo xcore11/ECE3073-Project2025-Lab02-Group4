@@ -15,6 +15,7 @@ module NIOSII_WEEK3 (
 	dram_dqm,
 	dram_ras_n,
 	dram_we_n,
+	esp_data_ready_export,
 	gpio_export,
 	hex0_export,
 	hex1_export,
@@ -51,6 +52,7 @@ module NIOSII_WEEK3 (
 	output	[1:0]	dram_dqm;
 	output		dram_ras_n;
 	output		dram_we_n;
+	input		esp_data_ready_export;
 	output	[1:0]	gpio_export;
 	output	[7:0]	hex0_export;
 	output	[7:0]	hex1_export;
@@ -69,6 +71,6 @@ module NIOSII_WEEK3 (
 	output		spi_SCLK;
 	output		spi_SS_n;
 	input		spi_select_export;
-	input	[3:0]	sw_export;
+	input	[9:0]	sw_export;
 	output		wren_export;
 endmodule

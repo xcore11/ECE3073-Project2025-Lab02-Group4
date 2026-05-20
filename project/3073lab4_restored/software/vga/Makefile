@@ -145,6 +145,10 @@ ELF := vga.elf
 C_SRCS += vga.c
 C_SRCS += main.c
 C_SRCS += accel.c
+C_SRCS += menu.c
+C_SRCS += snake.c
+C_SRCS += time.c
+C_SRCS += debug.c
 CXX_SRCS :=
 ASM_SRCS :=
 
