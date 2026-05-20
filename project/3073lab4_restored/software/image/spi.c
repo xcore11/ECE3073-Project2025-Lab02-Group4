@@ -40,6 +40,7 @@
    ========================= */
 
 #define SPI_SLAVE_0             0x1
+#define SPI_REQUEST_BYTE        0x5F
 #define SPI_DUMMY_BYTE          0x00
 
 /*
@@ -73,9 +74,6 @@
 static char spi_rx_text[TEXT_BUFFER_SIZE];
 static uint32_t latest_packet_length = 0;
 
-/* Forward declarations. */
-static uint8_t sdram_read_packet_byte(uint32_t index);
-
 /* =========================
    Little endian helpers
    ========================= */
@@ -105,22 +103,31 @@ static uint32_t round_up_4(uint32_t value)
 
 static void sdram_write_status(uint32_t offset, uint32_t value)
 {
-    /* Internal 32-bit status registers live at STATUS_REG_BASE. */
+    /*
+       Internal 32-bit status registers live at STATUS_REG_BASE.
+       Do not write these into STATUS_BASE, because STATUS_BASE is the
+       24-byte packet header area that VGA reads.
+    */
     IOWR_32DIRECT(STATUS_REG_BASE, offset, value);
 }
 
 static void sdram_clear_text(void)
 {
+    volatile char *dst = (volatile char *)TEXT_BUFFER_BASE;
     uint32_t i;
 
     for (i = 0; i < TEXT_BUFFER_SIZE; i++) {
-        IOWR_8DIRECT(TEXT_BUFFER_BASE, i, 0);
+        dst[i] = '\0';
+    }
+
+    for (i = 0; i < TEXT_BUFFER_SIZE; i++) {
         spi_rx_text[i] = '\0';
     }
 }
 
-static void sdram_store_text_from_packet(uint32_t text_src_offset, uint16_t text_len)
+static void sdram_store_text_bytes(const uint8_t *text, uint16_t text_len)
 {
+    volatile char *dst = (volatile char *)TEXT_BUFFER_BASE;
     uint32_t i;
 
     sdram_clear_text();
@@ -130,21 +137,11 @@ static void sdram_store_text_from_packet(uint32_t text_src_offset, uint16_t text
     }
 
     for (i = 0; i < text_len; i++) {
-        char c = (char)sdram_read_packet_byte(text_src_offset + i);
-
-        /* Store display-safe text only. */
-        if (c == '\0' || c == '\r' || c == '\n' || c == '\t') {
-            c = ' ';
-        }
-        if (c < 32 || c > 126) {
-            c = ' ';
-        }
-
-        IOWR_8DIRECT(TEXT_BUFFER_BASE, i, (uint8_t)c);
-        spi_rx_text[i] = c;
+        dst[i] = (char)text[i];
+        spi_rx_text[i] = (char)text[i];
     }
 
-    IOWR_8DIRECT(TEXT_BUFFER_BASE, text_len, 0);
+    dst[text_len] = '\0';
     spi_rx_text[text_len] = '\0';
 
     sdram_write_status(STATUS_SPI_RX_COUNT, (uint32_t)text_len);
@@ -187,14 +184,24 @@ static void sdram_store_status_header_from_packet(void)
 {
     uint32_t i;
 
+    /*
+       Copy the first 24 packet bytes to STATUS_BASE.
+       VGA reads this and expects STATUS_BASE[0..1] == 'G''V'.
+    */
     for (i = 0; i < SPI_PACKET_HEADER_SIZE; i++) {
         IOWR_8DIRECT(STATUS_BASE, i, sdram_read_packet_byte(i));
     }
 }
 
+
 static void sdram_store_image_byte(uint32_t index, uint8_t value)
 {
     IOWR_8DIRECT(IMAGE_BUFFER_BASE, index, value);
+}
+
+static uint8_t sdram_read_image_byte(uint32_t index)
+{
+    return (uint8_t)(IORD_8DIRECT(IMAGE_BUFFER_BASE, index) & 0xFF);
 }
 
 static void sdram_clear_image_region(uint32_t count)
@@ -208,6 +215,49 @@ static void sdram_clear_image_region(uint32_t count)
     for (i = 0; i < count; i++) {
         IOWR_8DIRECT(IMAGE_BUFFER_BASE, i, 0);
     }
+}
+
+static void print_sdram_image_first_last20(uint32_t image_len)
+{
+    uint32_t i;
+    uint32_t start;
+    uint32_t first_count;
+
+    printf("========== FPGA SDRAM IMAGE COMPARE ==========\n");
+    printf("IMAGE_BUFFER_BASE=0x%08X\n", IMAGE_BUFFER_BASE);
+    printf("image_len=%lu\n", (unsigned long)image_len);
+
+    if (image_len == 0) {
+        printf("first20=<none>\n");
+        printf("last20=<none>\n");
+        printf("==============================================\n");
+        fflush(stdout);
+        return;
+    }
+
+    first_count = image_len < 20 ? image_len : 20;
+
+    printf("first20=");
+    for (i = 0; i < first_count; i++) {
+        printf("%02X", sdram_read_image_byte(i));
+        if (i + 1 < first_count) {
+            printf(" ");
+        }
+    }
+    printf("\n");
+
+    start = image_len > 20 ? image_len - 20 : 0;
+
+    printf("last20=");
+    for (i = start; i < image_len; i++) {
+        printf("%02X", sdram_read_image_byte(i));
+        if (i + 1 < image_len) {
+            printf(" ");
+        }
+    }
+    printf("\n");
+    printf("==============================================\n");
+    fflush(stdout);
 }
 
 /* =========================
@@ -267,7 +317,7 @@ static uint8_t spi_transfer_byte(uint8_t tx_byte)
 }
 
 /* =========================
-   Packet metadata + text/image store
+   Packet metadata + text store
    ========================= */
 
 static int store_text_and_metadata_from_packet(uint32_t packet_len)
@@ -281,10 +331,11 @@ static int store_text_and_metadata_from_packet(uint32_t packet_len)
     uint16_t line_count;
     uint32_t image_len;
     uint16_t header_len;
+    uint16_t flags;
     uint8_t status;
 
     if (packet_len < SPI_PACKET_HEADER_SIZE) {
-        printf("SPI error: packet too short\n");
+        printf("SPI: packet too short\n");
         sdram_write_status(STATUS_LAST_ERROR, 2);
         return 0;
     }
@@ -294,7 +345,7 @@ static int store_text_and_metadata_from_packet(uint32_t packet_len)
     }
 
     if (header[0] != SPI_PACKET_MAGIC0 || header[1] != SPI_PACKET_MAGIC1) {
-        printf("SPI error: bad packet magic\n");
+        printf("SPI: bad packet magic 0x%02X 0x%02X\n", header[0], header[1]);
         sdram_write_status(STATUS_LAST_ERROR, 3);
         return 0;
     }
@@ -307,30 +358,43 @@ static int store_text_and_metadata_from_packet(uint32_t packet_len)
     line_count = read_u16_le(&header[14]);
     image_len  = read_u32_le(&header[16]);
     header_len = read_u16_le(&header[20]);
+    flags      = read_u16_le(&header[22]);
 
     if (header_len == 0) {
         header_len = SPI_PACKET_HEADER_SIZE;
     }
 
     if (total_len != packet_len) {
-        printf("SPI error: packet length mismatch\n");
+        printf("SPI: length mismatch header=%lu received=%lu\n",
+               (unsigned long)total_len,
+               (unsigned long)packet_len);
         sdram_write_status(STATUS_LAST_ERROR, 4);
         return 0;
     }
 
     if ((uint32_t)header_len + (uint32_t)text_len + image_len > packet_len) {
-        printf("SPI error: invalid text/image length\n");
+        printf("SPI: invalid text/image lengths\n");
         sdram_write_status(STATUS_LAST_ERROR, 5);
         return 0;
     }
 
-    /* Copy packet header for VGA/status readers. */
+    /*
+       Copy the real 24-byte ESP packet header to STATUS_BASE for VGA.
+       This is what fixes VGA seeing random magic like 0x0E 0x0C.
+    */
     sdram_store_status_header_from_packet();
 
-    /* Store received sentence into TEXT_BUFFER_BASE. */
-    sdram_store_text_from_packet(header_len, text_len);
+    /*
+       This only copies the already-recognized text bytes from the ESP packet
+       into TEXT_BUFFER_BASE. It does not run decoder.c or convert the text
+       into peripheral instructions.
+    */
+    sdram_store_text_bytes((const uint8_t *)(SPI_PACKET_BASE + header_len), text_len);
 
-    /* Store raw grayscale image into IMAGE_BUFFER_BASE. */
+    /*
+       Copy the raw grayscale image payload into a separate SDRAM image buffer
+       so VGA/debug code can read it directly without parsing the packet.
+    */
     sdram_clear_image_region(IMAGE_BUFFER_SIZE);
 
     if (image_len > 0) {
@@ -346,6 +410,8 @@ static int store_text_and_metadata_from_packet(uint32_t packet_len)
         }
     }
 
+    print_sdram_image_first_last20(image_len);
+
     sdram_write_status(STATUS_PACKET_READY, 1);
     sdram_write_status(STATUS_PACKET_LENGTH, packet_len);
     sdram_write_status(STATUS_TEXT_LENGTH, text_len);
@@ -355,11 +421,20 @@ static int store_text_and_metadata_from_packet(uint32_t packet_len)
     sdram_write_status(STATUS_IMAGE_LENGTH, image_len);
     sdram_write_status(STATUS_LAST_ERROR, status == 1 ? 0 : status);
 
-    printf("Received sentence: %s\n", spi_rx_text);
-    printf("Image stored: %ux%u, %lu bytes\n",
+    printf("SPI: packet stored only, no instruction decoding\n");
+    printf("SPI: packet_len=%lu text_len=%u image=%ux%u image_len=%lu lines=%u status=%u flags=0x%04X\n",
+           (unsigned long)packet_len,
+           text_len,
            image_w,
            image_h,
-           (unsigned long)image_len);
+           (unsigned long)image_len,
+           line_count,
+           status,
+           flags);
+    printf("SPI: text stored at TEXT_BUFFER_BASE=[%s]\n", spi_rx_text);
+    printf("SPI: full packet stored at SPI_PACKET_BASE=0x%08X\n", SPI_PACKET_BASE);
+    printf("SPI: header copied to STATUS_BASE=0x%08X\n", STATUS_BASE);
+    printf("SPI: raw image stored at IMAGE_BUFFER_BASE=0x%08X\n", IMAGE_BUFFER_BASE);
     fflush(stdout);
 
     return 1;
@@ -369,18 +444,18 @@ static int store_text_and_metadata_from_packet(uint32_t packet_len)
    ESP DMA SPI command protocol
    ========================= */
 
-#define SPI_CMD_SESSION_START       0x5F
+#define SPI_CMD_TRIGGER_CAPTURE     0x5F
 #define SPI_CMD_READ_LENGTH         0xA1
 #define SPI_CMD_READ_PACKET         0xA2
-#define SPI_CMD_ABORT_PACKET        0xA3
 
 #define SPI_COMMAND_BYTES           4
 #define SPI_LEN_READ_BYTES          8
 #define SPI_PACKET_READ_EXTRA_BYTES 4
 
-#define SPI_LENGTH_RETRY_COUNT      5
-#define SPI_LENGTH_RETRY_DELAY_US   20000
-#define SPI_ESP_QUEUE_DELAY_US      50000
+#define SPI_LENGTH_RETRY_COUNT      20
+#define SPI_LENGTH_RETRY_DELAY_US   500000
+#define SPI_ESP_QUEUE_DELAY_US      2000
+#define SPI_CAPTURE_WAIT_US         5000000
 
 static void spi_send_command4(uint8_t cmd)
 {
@@ -394,56 +469,29 @@ static void spi_send_command4(uint8_t cmd)
     spi_end_transaction();
 }
 
-void spi_send_session_start(void)
-{
-	printf("SPI debug: sending 0x5F session-start command to ESP");
-    spi_send_command4(SPI_CMD_SESSION_START);
-
-    /* Give ESP SPI task time to process the start command before packet IRQs. */
-    usleep(SPI_ESP_QUEUE_DELAY_US);
-}
-
 static uint32_t spi_read_packet_length_once(void)
 {
     uint8_t len_bytes[SPI_LEN_READ_BYTES];
     uint32_t i;
-    uint32_t len;
 
     for (i = 0; i < SPI_LEN_READ_BYTES; i++) {
         len_bytes[i] = 0;
     }
 
-    /*
-       Phase 1: send command only.
-       The ESP receives 0xA1, then queues the length reply transaction.
-    */
+    /* Command transaction: tell ESP to prepare length reply. */
     spi_send_command4(SPI_CMD_READ_LENGTH);
 
-    /*
-       ESP32 SPI slave DMA needs time to finish the command transaction
-       and queue the next DMA transaction. Too short gives 0xFFFFFFFF.
-    */
+    /* Give ESP DMA task a tiny window to queue the reply transaction. */
     usleep(SPI_ESP_QUEUE_DELAY_US);
 
-    /* Phase 2: clock the length reply. */
+    /* Read transaction: FPGA generates SCLK using dummy bytes. */
     spi_begin_transaction();
     for (i = 0; i < SPI_LEN_READ_BYTES; i++) {
         len_bytes[i] = spi_transfer_byte(SPI_DUMMY_BYTE);
     }
     spi_end_transaction();
 
-    len = read_u32_le(len_bytes);
-
-    printf("SPI debug: raw length bytes = %02X %02X %02X %02X %02X %02X %02X %02X, len=%lu\n",
-           len_bytes[0], len_bytes[1], len_bytes[2], len_bytes[3],
-           len_bytes[4], len_bytes[5], len_bytes[6], len_bytes[7],
-           (unsigned long)len);
-
-    if (len == 0xFFFFFFFFu) {
-        usleep(SPI_LENGTH_RETRY_DELAY_US);
-    }
-
-    return len;
+    return read_u32_le(len_bytes);
 }
 
 static void spi_read_packet_bytes(uint32_t packet_len)
@@ -451,25 +499,21 @@ static void spi_read_packet_bytes(uint32_t packet_len)
     uint32_t padded_packet_len;
     uint32_t clocks_to_generate;
     uint32_t i;
-    uint8_t first_bytes[8];
-
-    for (i = 0; i < 8; i++) {
-        first_bytes[i] = 0;
-    }
 
     padded_packet_len = round_up_4(packet_len);
     clocks_to_generate = padded_packet_len + SPI_PACKET_READ_EXTRA_BYTES;
 
-    printf("SPI debug: sending 0xA2 packet request, expecting %lu bytes\n",
-           (unsigned long)packet_len);
+    printf("SPI: reading packet bytes=%lu padded=%lu clocks=%lu\n",
+           (unsigned long)packet_len,
+           (unsigned long)padded_packet_len,
+           (unsigned long)clocks_to_generate);
+    fflush(stdout);
 
-    /* Phase 1: tell ESP we want the packet. */
+    /* Command transaction: tell ESP to queue the packet as DMA MISO data. */
     spi_send_command4(SPI_CMD_READ_PACKET);
-
-    /* Let ESP queue the packet reply before FPGA starts clocking bytes. */
     usleep(SPI_ESP_QUEUE_DELAY_US);
 
-    /* Phase 2: clock packet bytes from ESP. */
+    /* Read transaction: FPGA sends dummy bytes only to generate SCLK. */
     spi_begin_transaction();
     for (i = 0; i < clocks_to_generate; i++) {
         uint8_t rx = spi_transfer_byte(SPI_DUMMY_BYTE);
@@ -477,23 +521,8 @@ static void spi_read_packet_bytes(uint32_t packet_len)
         if (i < packet_len) {
             sdram_store_packet_byte(i, rx);
         }
-
-        if (i < 8) {
-            first_bytes[i] = rx;
-        }
     }
     spi_end_transaction();
-
-    printf("SPI debug: first packet bytes = %02X %02X %02X %02X %02X %02X %02X %02X\n",
-           first_bytes[0], first_bytes[1], first_bytes[2], first_bytes[3],
-           first_bytes[4], first_bytes[5], first_bytes[6], first_bytes[7]);
-}
-
-static void spi_abort_packet_on_esp(void)
-{
-    printf("SPI debug: sending 0xA3 abort/reset packet command to ESP\n");
-    spi_send_command4(SPI_CMD_ABORT_PACKET);
-    usleep(SPI_ESP_QUEUE_DELAY_US);
 }
 
 /* =========================
@@ -510,69 +539,71 @@ void spi_request_text_from_esp(void)
     sdram_write_status(STATUS_PACKET_READY, 0);
     sdram_write_status(STATUS_LAST_ERROR, 0);
 
+    printf("SPI: sending capture trigger command 0x%02X\n", SPI_CMD_TRIGGER_CAPTURE);
+    fflush(stdout);
+
     /*
-       Realtime mode:
-       No 0x5F trigger and no 5 second wait.
-       ESP_DATA_READY already means the ESP has a packet prepared.
-       FPGA only clocks SPI to read length + packet.
+       Transaction 1:
+       FPGA sends 4 command bytes. ESP DMA command task reads byte[0].
+       byte[0] = 0x5F, byte[1..3] = dummy padding.
     */
+    spi_send_command4(SPI_CMD_TRIGGER_CAPTURE);
+
+    printf("SPI: waiting %lu us for ESP capture/final packet build\n",
+           (unsigned long)SPI_CAPTURE_WAIT_US);
+    fflush(stdout);
+    usleep(SPI_CAPTURE_WAIT_US);
+
     packet_len = 0;
 
     for (attempt = 1; attempt <= SPI_LENGTH_RETRY_COUNT; attempt++) {
+        printf("SPI: reading packet length attempt %lu/%u\n",
+               (unsigned long)attempt,
+               SPI_LENGTH_RETRY_COUNT);
+        fflush(stdout);
+
         packet_len = spi_read_packet_length_once();
         latest_packet_length = packet_len;
 
+        printf("SPI: packet length received = %lu\n", (unsigned long)packet_len);
+        fflush(stdout);
+
         if (packet_len != 0 && packet_len != 0xFFFFFFFFu) {
             break;
+        }
+
+        if (packet_len == 0xFFFFFFFFu) {
+            printf("SPI: 0xFFFFFFFF means MISO high or ESP did not queue length reply. Retrying...\n");
+        } else {
+            printf("SPI: ESP length=0, packet not ready yet. Retrying...\n");
         }
 
         usleep(SPI_LENGTH_RETRY_DELAY_US);
     }
 
     if (packet_len == 0) {
-        printf("SPI error: ESP_DATA_READY high but packet length is 0\n");
+        printf("SPI: ESP packet not ready after retries.\n");
         sdram_write_status(STATUS_LAST_ERROR, 6);
-        latest_packet_length = 0;
-        spi_abort_packet_on_esp();
         return;
     }
 
     if (packet_len == 0xFFFFFFFFu) {
-        static uint32_t invalid_ff_count = 0;
-
-        invalid_ff_count++;
-
-        if ((invalid_ff_count % 20) == 1) {
-            printf("SPI waiting: invalid length 0xFFFFFFFF, ESP reply not queued yet\n");
-        }
-
+        printf("SPI: still read 0xFFFFFFFF after retries. Check SPI mode/wiring/CS/MISO.\n");
         sdram_write_status(STATUS_LAST_ERROR, 8);
-        latest_packet_length = 0;
-        spi_abort_packet_on_esp();
-
-        /* Prevent tight retry spam while ESP_DATA_READY is still high. */
-        usleep(50000);
         return;
     }
 
     if (packet_len > SPI_PACKET_MAX_SIZE) {
-        printf("SPI error: packet too large\n");
+        printf("SPI: packet too large, max=%lu\n", (unsigned long)SPI_PACKET_MAX_SIZE);
         sdram_write_status(STATUS_LAST_ERROR, 7);
-        latest_packet_length = 0;
-        spi_abort_packet_on_esp();
         return;
     }
 
     sdram_clear_packet_region(packet_len + SPI_PACKET_READ_EXTRA_BYTES);
+
     spi_read_packet_bytes(packet_len);
 
-    if (!store_text_and_metadata_from_packet(packet_len)) {
-        latest_packet_length = 0;
-        spi_abort_packet_on_esp();
-        return;
-    }
-
-    latest_packet_length = packet_len;
+    store_text_and_metadata_from_packet(packet_len);
 }
 
 const char *spi_get_latest_text(void)
