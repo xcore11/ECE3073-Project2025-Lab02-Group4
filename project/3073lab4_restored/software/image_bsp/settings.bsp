@@ -2,8 +2,8 @@
 <sch:Settings xmlns:sch="http://www.altera.com/embeddedsw/bsp/schema">
         <BspType>hal</BspType>
         <BspVersion>default</BspVersion>
-        <BspGeneratedTimeStamp>May 6, 2026 8:54:04 AM</BspGeneratedTimeStamp>
-        <BspGeneratedUnixTimeStamp>1778028844958</BspGeneratedUnixTimeStamp>
+        <BspGeneratedTimeStamp>May 20, 2026 5:37:50 AM</BspGeneratedTimeStamp>
+        <BspGeneratedUnixTimeStamp>1779226670427</BspGeneratedUnixTimeStamp>
         <BspGeneratedLocation>C:\temp\ECE3073-Project2025-Lab02-Group4\project\3073lab4_restored\software\image_bsp</BspGeneratedLocation>
         <BspSettingsFile>settings.bsp</BspSettingsFile>
         <SopcDesignFile>..\..\NIOSII_WEEK3.sopcinfo</SopcDesignFile>
@@ -935,26 +935,32 @@
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
-                <slaveDescriptor>img_IRQ_rx</slaveDescriptor>
-                <addressRange>0x00009070 - 0x0000907F</addressRange>
-                <addressSpan>16</addressSpan>
-                <attributes/>
-        </MemoryMap>
-        <MemoryMap>
-                <slaveDescriptor>img_IRQ_tx</slaveDescriptor>
+                <slaveDescriptor>ESP_data_ready</slaveDescriptor>
                 <addressRange>0x00009080 - 0x0000908F</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
-                <slaveDescriptor>pio_spi_select</slaveDescriptor>
+                <slaveDescriptor>img_IRQ_rx</slaveDescriptor>
                 <addressRange>0x00009090 - 0x0000909F</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
+                <slaveDescriptor>img_IRQ_tx</slaveDescriptor>
+                <addressRange>0x000090A0 - 0x000090AF</addressRange>
+                <addressSpan>16</addressSpan>
+                <attributes/>
+        </MemoryMap>
+        <MemoryMap>
+                <slaveDescriptor>pio_spi_select</slaveDescriptor>
+                <addressRange>0x000090B0 - 0x000090BF</addressRange>
+                <addressSpan>16</addressSpan>
+                <attributes/>
+        </MemoryMap>
+        <MemoryMap>
                 <slaveDescriptor>jtag_image</slaveDescriptor>
-                <addressRange>0x000090A8 - 0x000090AF</addressRange>
+                <addressRange>0x000090C8 - 0x000090CF</addressRange>
                 <addressSpan>8</addressSpan>
                 <attributes>printable</attributes>
         </MemoryMap>

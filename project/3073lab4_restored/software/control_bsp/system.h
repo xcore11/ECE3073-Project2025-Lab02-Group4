@@ -4,7 +4,7 @@
  * Machine generated for CPU 'control_proc' in SOPC Builder design 'NIOSII_WEEK3'
  * SOPC Builder design path: ../../NIOSII_WEEK3.sopcinfo
  *
- * Generated: Tue May 05 17:09:18 SGT 2026
+ * Generated: Wed May 20 00:23:34 SGT 2026
  */
 
 /*
@@ -715,7 +715,7 @@
 #define PIO_SW_BIT_CLEARING_EDGE_REGISTER 0
 #define PIO_SW_BIT_MODIFYING_OUTPUT_REGISTER 0
 #define PIO_SW_CAPTURE 1
-#define PIO_SW_DATA_WIDTH 4
+#define PIO_SW_DATA_WIDTH 10
 #define PIO_SW_DO_TEST_BENCH_WIRING 0
 #define PIO_SW_DRIVEN_SIM_VALUE 0
 #define PIO_SW_EDGE_TYPE "ANY"
