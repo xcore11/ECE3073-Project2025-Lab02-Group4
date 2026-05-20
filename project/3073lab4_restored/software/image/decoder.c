@@ -1,907 +1,815 @@
-#include <stdio.h>
-#include <string.h>
-#include <ctype.h>
-#include <unistd.h>
-
-#include "io.h"
-#include "system.h"
-#include "decoder.h"
-
-/* ============================================================
-   SNAKE SDRAM MAILBOX
-   ============================================================ */
-
-#define SHARED_FLAGS_BASE          0x05212000
-
-#define SNAKE_MB_READY             0x100
-#define SNAKE_MB_ACK               0x104
-#define SNAKE_MB_SEQ               0x108
-#define SNAKE_MB_TYPE              0x10C
-#define SNAKE_MB_COUNT             0x110
-#define SNAKE_MB_FLAGS             0x114
-#define SNAKE_MB_PAYLOAD_LEN       0x118
-#define SNAKE_MB_STATUS            0x11C
-#define SNAKE_MB_PAYLOAD           0x120
-
-#define SNAKE_MB_PAYLOAD_MAX       256
-
-/* ============================================================
-   COMMAND TYPES
-   ============================================================ */
-
-#define SNAKE_CMD_NONE             0
-#define SNAKE_CMD_SET_APPLE        1
-#define SNAKE_CMD_SET_WALLS        2
-#define SNAKE_CMD_ADD_WALLS        3
-#define SNAKE_CMD_SET_PORTALS      4
-#define SNAKE_CMD_CLEAR_ARENA      5
-#define SNAKE_CMD_CLEAR_WALLS      6
-
-/* ============================================================
-   GRID LIMITS
-   ============================================================ */
-
-#define SNAKE_GRID_W               32
-#define SNAKE_GRID_H               22
-
-/* ============================================================
-   STREAM SETTINGS
-   ============================================================ */
-
-#define DECODER_STREAM_MAX         512
-#define MAILBOX_WAIT_RETRY         1000
-
-/* ============================================================
-   STREAM BUFFER
-   ============================================================ */
-
-static char stream_buf[DECODER_STREAM_MAX];
-static unsigned int stream_len = 0;
-
-/* ============================================================
-   PORTAL LOCAL STATE
-   ============================================================ */
-
-static int portal_a_valid = 0;
-static int portal_b_valid = 0;
-
-static unsigned char portal_ax = 0;
-static unsigned char portal_ay = 0;
-static unsigned char portal_bx = 0;
-static unsigned char portal_by = 0;
-
-/* ============================================================
-   BASIC HELPERS
-   ============================================================ */
-
-void decoder_reset_stream(void)
-{
-    stream_len = 0;
-    stream_buf[0] = '\0';
-
-    portal_a_valid = 0;
-    portal_b_valid = 0;
-}
-
-static int coord_valid(int x, int y)
-{
-    if (x < 0 || x >= SNAKE_GRID_W) return 0;
-    if (y < 0 || y >= SNAKE_GRID_H) return 0;
-    return 1;
-}
-
-static void snake_write_payload_byte(unsigned int index, unsigned char value)
-{
-    volatile unsigned char *payload;
-
-    payload = (volatile unsigned char *)(SHARED_FLAGS_BASE + SNAKE_MB_PAYLOAD);
-    payload[index] = value;
-}
-
-static int snake_send_mailbox_command(
-    unsigned int cmd_type,
-    unsigned int count,
-    unsigned int payload_len,
-    const unsigned char *payload
-)
-{
-    static unsigned int seq = 0;
-    unsigned int i;
-    unsigned int wait_count = 0;
-
-    while (IORD_32DIRECT(SHARED_FLAGS_BASE, SNAKE_MB_READY) != 0)
-    {
-        usleep(1000);
-        wait_count++;
-
-        if (wait_count >= MAILBOX_WAIT_RETRY)
-        {
-            return DECODER_ERR_MAILBOX_BUSY;
-        }
-    }
-
-    if (payload_len > SNAKE_MB_PAYLOAD_MAX)
-    {
-        payload_len = SNAKE_MB_PAYLOAD_MAX;
-    }
-
-    for (i = 0; i < payload_len; i++)
-    {
-        snake_write_payload_byte(i, payload[i]);
-    }
-
-    seq++;
-
-    IOWR_32DIRECT(SHARED_FLAGS_BASE, SNAKE_MB_TYPE, cmd_type);
-    IOWR_32DIRECT(SHARED_FLAGS_BASE, SNAKE_MB_COUNT, count);
-    IOWR_32DIRECT(SHARED_FLAGS_BASE, SNAKE_MB_PAYLOAD_LEN, payload_len);
-    IOWR_32DIRECT(SHARED_FLAGS_BASE, SNAKE_MB_ACK, 0);
-    IOWR_32DIRECT(SHARED_FLAGS_BASE, SNAKE_MB_SEQ, seq);
-
-    /*
-       READY must be written last.
-    */
-    IOWR_32DIRECT(SHARED_FLAGS_BASE, SNAKE_MB_READY, 1);
-
-    return DECODER_OK_SENT;
-}
-
-static int parse_number_range(
-    const char *buf,
-    unsigned int *pos,
-    unsigned int end,
-    int *out_value
-)
-{
-    int value = 0;
-    int found_digit = 0;
-
-    while (*pos < end && buf[*pos] >= '0' && buf[*pos] <= '9')
-    {
-        found_digit = 1;
-        value = value * 10 + (buf[*pos] - '0');
-        (*pos)++;
-    }
-
-    if (!found_digit)
-    {
-        return 0;
-    }
-
-    *out_value = value;
-    return 1;
-}
-
-/*
-   Parse XnYn pairs from buf[start..end).
-
-   If the last pair is incomplete because the next SPI chunk has not arrived,
-   this returns success with only completed pairs.
-*/
-static int parse_xy_pairs_range(
-    const char *buf,
-    unsigned int start,
-    unsigned int end,
-    unsigned char *payload,
-    unsigned int max_payload_len,
-    unsigned int *out_count,
-    unsigned int *out_payload_len
-)
-{
-    unsigned int pos = start;
-    unsigned int count = 0;
-    unsigned int payload_len = 0;
-
-    while (pos < end)
-    {
-        unsigned int pair_start = pos;
-        int x;
-        int y;
-
-        if (buf[pos] != 'X')
-        {
-            if ((end - pos) >= 5 && strncmp(&buf[pos], "SNAKE", 5) == 0)
-            {
-                break;
-            }
-
-            return DECODER_ERR_BAD_FORMAT;
-        }
-
-        pos++;
-
-        if (!parse_number_range(buf, &pos, end, &x))
-        {
-            break;
-        }
-
-        if (pos >= end)
-        {
-            pos = pair_start;
-            break;
-        }
-
-        if (buf[pos] != 'Y')
-        {
-            return DECODER_ERR_BAD_FORMAT;
-        }
-
-        pos++;
-
-        if (!parse_number_range(buf, &pos, end, &y))
-        {
-            pos = pair_start;
-            break;
-        }
-
-        if (!coord_valid(x, y))
-        {
-            return DECODER_ERR_OUT_OF_RANGE;
-        }
-
-        if (payload_len + 2 > max_payload_len)
-        {
-            break;
-        }
-
-        payload[payload_len++] = (unsigned char)x;
-        payload[payload_len++] = (unsigned char)y;
-        count++;
-    }
-
-    *out_count = count;
-    *out_payload_len = payload_len;
-
-    return DECODER_OK_SENT;
-}
-
-/* ============================================================
-   STREAM HELPERS
-   ============================================================ */
-
-static int starts_with_at(const char *buf, unsigned int pos, const char *prefix)
-{
-    unsigned int prefix_len;
-
-    prefix_len = (unsigned int)strlen(prefix);
-
-    if (pos + prefix_len > stream_len)
-    {
-        return 0;
-    }
-
-    return strncmp(&buf[pos], prefix, prefix_len) == 0;
-}
-
-static int find_token_from(unsigned int start, const char *token)
-{
-    unsigned int i;
-    unsigned int token_len;
-
-    token_len = (unsigned int)strlen(token);
-
-    if (token_len == 0 || stream_len < token_len)
-    {
-        return -1;
-    }
-
-    for (i = start; i + token_len <= stream_len; i++)
-    {
-        if (strncmp(&stream_buf[i], token, token_len) == 0)
-        {
-            return (int)i;
-        }
-    }
-
-    return -1;
-}
-
-static int find_next_snake(unsigned int start)
-{
-    return find_token_from(start, "SNAKE");
-}
-
-static void remove_stream_prefix(unsigned int count)
-{
-    unsigned int i;
-
-    if (count == 0)
-    {
-        return;
-    }
-
-    if (count >= stream_len)
-    {
-        stream_len = 0;
-        stream_buf[0] = '\0';
-        return;
-    }
-
-    for (i = 0; i < stream_len - count; i++)
-    {
-        stream_buf[i] = stream_buf[i + count];
-    }
-
-    stream_len -= count;
-    stream_buf[stream_len] = '\0';
-}
-
-/*
-   Camera sometimes reads:
-       S AKEAPP
-   instead of:
-       SNAKEAPP
-
-   This repair inserts missing N in SAKE...
-*/
-static void repair_common_ocr_errors(void)
-{
-    unsigned int i;
-
-    i = 0;
-
-    while (i + 4 <= stream_len)
-    {
-        if (strncmp(&stream_buf[i], "SAKE", 4) == 0)
-        {
-            unsigned int j;
-
-            if (stream_len + 1 < DECODER_STREAM_MAX)
-            {
-                for (j = stream_len + 1; j > i + 1; j--)
-                {
-                    stream_buf[j] = stream_buf[j - 1];
-                }
-
-                stream_buf[i + 1] = 'N';
-                stream_len++;
-                stream_buf[stream_len] = '\0';
-
-                i += 5;
-                continue;
-            }
-        }
-
-        i++;
-    }
-}
-
-static void append_normalized_chunk(const char *text, unsigned int len)
-{
-    unsigned int i;
-
-    for (i = 0; i < len; i++)
-    {
-        unsigned char c;
-
-        c = (unsigned char)text[i];
-
-        if (c == '\0')
-        {
-            break;
-        }
-
-        /*
-           Keep only letters and numbers.
-           Removes spaces/newlines from fixed-column output.
-        */
-        if (isalnum(c))
-        {
-            if (stream_len + 1 >= DECODER_STREAM_MAX)
-            {
-                int first_snake;
-
-                first_snake = find_next_snake(0);
-
-                if (first_snake > 0)
-                {
-                    remove_stream_prefix((unsigned int)first_snake);
-                }
-                else
-                {
-                    stream_len = 0;
-                    stream_buf[0] = '\0';
-                }
-            }
-
-            if (stream_len + 1 < DECODER_STREAM_MAX)
-            {
-                stream_buf[stream_len++] = (char)toupper(c);
-                stream_buf[stream_len] = '\0';
-            }
-        }
-    }
-
-    repair_common_ocr_errors();
-}
-
-static void drop_junk_before_command(void)
-{
-    int first_snake;
-    int first_sake;
-    int first;
-
-    first_snake = find_token_from(0, "SNAKE");
-    first_sake = find_token_from(0, "SAKE");
-
-    if (first_snake < 0 && first_sake < 0)
-    {
-        /*
-           Keep a small suffix in case next chunk completes SNAKE.
-        */
-        if (stream_len > 8)
-        {
-            remove_stream_prefix(stream_len - 8);
-        }
-        return;
-    }
-
-    if (first_snake < 0)
-    {
-        first = first_sake;
-    }
-    else if (first_sake < 0)
-    {
-        first = first_snake;
-    }
-    else
-    {
-        first = (first_snake < first_sake) ? first_snake : first_sake;
-    }
-
-    if (first > 0)
-    {
-        remove_stream_prefix((unsigned int)first);
-    }
-
-    repair_common_ocr_errors();
-}
-
-/* ============================================================
-   COMMAND SEND HELPERS
-   ============================================================ */
-
-static int send_apple_from_segment(unsigned int data_start, unsigned int data_end)
-{
-    unsigned char payload[2];
-    unsigned int count;
-    unsigned int payload_len;
-    int result;
-
-    result = parse_xy_pairs_range(
-        stream_buf,
-        data_start,
-        data_end,
-        payload,
-        sizeof(payload),
-        &count,
-        &payload_len
-    );
-
-    if (result < 0)
-    {
-        return result;
-    }
-
-    if (count < 1 || payload_len < 2)
-    {
-        return DECODER_NO_COMMAND;
-    }
-
-    /*
-       Snake mailbox expects one apple.
-       If multiple apples appear, use the first one.
-    */
-    return snake_send_mailbox_command(
-        SNAKE_CMD_SET_APPLE,
-        1,
-        2,
-        payload
-    );
-}
-
-static int send_walls_from_segment(unsigned int data_start, unsigned int data_end)
-{
-    unsigned char payload[SNAKE_MB_PAYLOAD_MAX];
-    unsigned int count;
-    unsigned int payload_len;
-    int result;
-
-    result = parse_xy_pairs_range(
-        stream_buf,
-        data_start,
-        data_end,
-        payload,
-        sizeof(payload),
-        &count,
-        &payload_len
-    );
-
-    if (result < 0)
-    {
-        return result;
-    }
-
-    if (count == 0 || payload_len == 0)
-    {
-        return DECODER_NO_COMMAND;
-    }
-
-    /*
-       IMPORTANT:
-       No duplicate/similar ignoring here.
-
-       Similar-looking X/Y chunks are valid for snake:
-           X5Y16X6
-           Y16X8Y16
-           X10Y16X1
-           2Y16X14Y
-           16X16Y16
-    */
-    return snake_send_mailbox_command(
-        SNAKE_CMD_SET_WALLS,
-        count,
-        payload_len,
-        payload
-    );
-}
-
-static int send_add_walls_from_segment(unsigned int data_start, unsigned int data_end)
-{
-    unsigned char payload[SNAKE_MB_PAYLOAD_MAX];
-    unsigned int count;
-    unsigned int payload_len;
-    int result;
-
-    result = parse_xy_pairs_range(
-        stream_buf,
-        data_start,
-        data_end,
-        payload,
-        sizeof(payload),
-        &count,
-        &payload_len
-    );
-
-    if (result < 0)
-    {
-        return result;
-    }
-
-    if (count == 0 || payload_len == 0)
-    {
-        return DECODER_NO_COMMAND;
-    }
-
-    return snake_send_mailbox_command(
-        SNAKE_CMD_ADD_WALLS,
-        count,
-        payload_len,
-        payload
-    );
-}
-
-static int send_portal_a_from_segment(unsigned int data_start, unsigned int data_end)
-{
-    unsigned char payload[2];
-    unsigned int count;
-    unsigned int payload_len;
-    int result;
-
-    result = parse_xy_pairs_range(
-        stream_buf,
-        data_start,
-        data_end,
-        payload,
-        sizeof(payload),
-        &count,
-        &payload_len
-    );
-
-    if (result < 0)
-    {
-        return result;
-    }
-
-    if (count < 1 || payload_len < 2)
-    {
-        return DECODER_NO_COMMAND;
-    }
-
-    portal_ax = payload[0];
-    portal_ay = payload[1];
-    portal_a_valid = 1;
-
-    if (portal_b_valid)
-    {
-        unsigned char portal_payload[4];
-
-        portal_payload[0] = portal_ax;
-        portal_payload[1] = portal_ay;
-        portal_payload[2] = portal_bx;
-        portal_payload[3] = portal_by;
-
-        return snake_send_mailbox_command(
-            SNAKE_CMD_SET_PORTALS,
-            2,
-            4,
-            portal_payload
-        );
-    }
-
-    return DECODER_OK_WAITING_PORTAL;
-}
-
-static int send_portal_b_from_segment(unsigned int data_start, unsigned int data_end)
-{
-    unsigned char payload[2];
-    unsigned int count;
-    unsigned int payload_len;
-    int result;
-
-    result = parse_xy_pairs_range(
-        stream_buf,
-        data_start,
-        data_end,
-        payload,
-        sizeof(payload),
-        &count,
-        &payload_len
-    );
-
-    if (result < 0)
-    {
-        return result;
-    }
-
-    if (count < 1 || payload_len < 2)
-    {
-        return DECODER_NO_COMMAND;
-    }
-
-    portal_bx = payload[0];
-    portal_by = payload[1];
-    portal_b_valid = 1;
-
-    if (portal_a_valid)
-    {
-        unsigned char portal_payload[4];
-
-        portal_payload[0] = portal_ax;
-        portal_payload[1] = portal_ay;
-        portal_payload[2] = portal_bx;
-        portal_payload[3] = portal_by;
-
-        return snake_send_mailbox_command(
-            SNAKE_CMD_SET_PORTALS,
-            2,
-            4,
-            portal_payload
-        );
-    }
-
-    return DECODER_OK_WAITING_PORTAL;
-}
-
-static int send_clear_arena(void)
-{
-    return snake_send_mailbox_command(
-        SNAKE_CMD_CLEAR_ARENA,
-        0,
-        0,
-        0
-    );
-}
-
-static int send_clear_walls(void)
-{
-    return snake_send_mailbox_command(
-        SNAKE_CMD_CLEAR_WALLS,
-        0,
-        0,
-        0
-    );
-}
-
-/* ============================================================
-   STREAM PROCESSOR
-   ============================================================ */
-
-static int process_stream(void)
-{
-    int any_sent;
-    int last_result;
-
-    any_sent = 0;
-    last_result = DECODER_NO_COMMAND;
-
-    while (stream_len > 0)
-    {
-        int next_snake;
-        unsigned int cmd_end;
-        unsigned int remove_after_send;
-        int result;
-
-        drop_junk_before_command();
-
-        if (stream_len < 5)
-        {
-            break;
-        }
-
-        if (strncmp(stream_buf, "SNAKE", 5) != 0)
-        {
-            break;
-        }
-
-        next_snake = find_next_snake(5);
-
-        if (next_snake > 0)
-        {
-            cmd_end = (unsigned int)next_snake;
-        }
-        else
-        {
-            cmd_end = stream_len;
-        }
-
-        result = DECODER_NO_COMMAND;
-        remove_after_send = 0;
-
-        if (starts_with_at(stream_buf, 0, "SNAKEAPPLE"))
-        {
-            result = send_apple_from_segment(
-                (unsigned int)strlen("SNAKEAPPLE"),
-                cmd_end
-            );
-
-            if (result == DECODER_OK_SENT)
-            {
-                remove_after_send = cmd_end;
-            }
-        }
-        else if (starts_with_at(stream_buf, 0, "SNAKEADDWALL"))
-        {
-            result = send_add_walls_from_segment(
-                (unsigned int)strlen("SNAKEADDWALL"),
-                cmd_end
-            );
-
-            if (next_snake > 0 && result >= 0)
-            {
-                remove_after_send = cmd_end;
-            }
-        }
-        else if (starts_with_at(stream_buf, 0, "SNAKEWALL"))
-        {
-            result = send_walls_from_segment(
-                (unsigned int)strlen("SNAKEWALL"),
-                cmd_end
-            );
-
-            /*
-               If another SNAKE command has started, remove this command.
-               If no next SNAKE yet, keep it so later chunks can extend it.
-            */
-            if (next_snake > 0 && result >= 0)
-            {
-                remove_after_send = cmd_end;
-            }
-        }
-        else if (starts_with_at(stream_buf, 0, "SNAKEPORTALA"))
-        {
-            result = send_portal_a_from_segment(
-                (unsigned int)strlen("SNAKEPORTALA"),
-                cmd_end
-            );
-
-            if (result == DECODER_OK_SENT || result == DECODER_OK_WAITING_PORTAL)
-            {
-                remove_after_send = cmd_end;
-            }
-        }
-        else if (starts_with_at(stream_buf, 0, "SNAKEPORTALB"))
-        {
-            result = send_portal_b_from_segment(
-                (unsigned int)strlen("SNAKEPORTALB"),
-                cmd_end
-            );
-
-            if (result == DECODER_OK_SENT || result == DECODER_OK_WAITING_PORTAL)
-            {
-                remove_after_send = cmd_end;
-            }
-        }
-        else if (starts_with_at(stream_buf, 0, "SNAKECLEARARENA"))
-        {
-            result = send_clear_arena();
-
-            if (result == DECODER_OK_SENT)
-            {
-                remove_after_send = (unsigned int)strlen("SNAKECLEARARENA");
-            }
-        }
-        else if (starts_with_at(stream_buf, 0, "SNAKECLEARWALLS"))
-        {
-            result = send_clear_walls();
-
-            if (result == DECODER_OK_SENT)
-            {
-                remove_after_send = (unsigned int)strlen("SNAKECLEARWALLS");
-            }
-        }
-        else if (starts_with_at(stream_buf, 0, "SNAKEEMPTY"))
-        {
-            remove_after_send = (unsigned int)strlen("SNAKEEMPTY");
-            result = DECODER_NO_COMMAND;
-        }
-        else
-        {
-            /*
-               Example:
-                   SNAKEWAL
-                   SNAKEAPP
-               Not enough chars yet.
-            */
-            break;
-        }
-
-        if (result < 0)
-        {
-            return result;
-        }
-
-        if (result == DECODER_OK_SENT || result == DECODER_OK_WAITING_PORTAL)
-        {
-            any_sent = 1;
-            last_result = result;
-        }
-
-        if (remove_after_send > 0)
-        {
-            remove_stream_prefix(remove_after_send);
-            continue;
-        }
-
-        /*
-           No removal means wait for more chunks.
-        */
-        break;
-    }
-
-    if (any_sent)
-    {
-        return last_result;
-    }
-
-    return DECODER_NO_COMMAND;
-}
-
-/* ============================================================
-   PUBLIC API
-   ============================================================ */
-
-int decoder_decode_and_store_snake_command_len(const char *text, unsigned int len)
-{
-    if (text == 0 || len == 0)
-    {
-        return DECODER_NO_COMMAND;
-    }
-
-    append_normalized_chunk(text, len);
-
-    return process_stream();
-}
-
-int decoder_decode_and_store_snake_command(const char *text)
-{
-    if (text == 0)
-    {
-        return DECODER_NO_COMMAND;
-    }
-
-    return decoder_decode_and_store_snake_command_len(
-        text,
-        (unsigned int)strlen(text)
-    );
-}
+//#include "io.h"
+//#include <stdint.h>
+//#include <stdio.h>
+//#include <string.h>
+//#include <stdlib.h>
+//#include "shared_memory.h"
+//#include "decoder.h"
+//
+///* =========================
+//   Local decoder settings
+//   ========================= */
+//
+//#define DECODER_TEXT_MAX        TEXT_BUFFER_SIZE
+//#define LOCAL_MSG_MAX           HEX_MSG_MAX_LEN
+//
+//static uint32_t command_sequence = 0;
+//
+///* =========================
+//   SDRAM helpers
+//   ========================= */
+//
+//static uint32_t read_status(uint32_t offset)
+//{
+//    return IORD_32DIRECT(STATUS_BASE, offset);
+//}
+//
+//static void write_status(uint32_t offset, uint32_t value)
+//{
+//    IOWR_32DIRECT(STATUS_BASE, offset, value);
+//}
+//
+//static void write_instr(uint32_t offset, uint32_t value)
+//{
+//    IOWR_32DIRECT(INSTRUCTION_BASE, offset, value);
+//}
+//
+//static uint32_t read_instr(uint32_t offset)
+//{
+//    return IORD_32DIRECT(INSTRUCTION_BASE, offset);
+//}
+//
+//static void clear_hex_message_buffer(void)
+//{
+//    volatile char *hex_msg = (volatile char *)(INSTRUCTION_BASE + HEX_MSG_BASE);
+//    int i;
+//
+//    for (i = 0; i < HEX_MSG_MAX_LEN; i++) {
+//        hex_msg[i] = '\0';
+//    }
+//}
+//
+//static void write_hex_message(const char *msg)
+//{
+//    volatile char *hex_msg = (volatile char *)(INSTRUCTION_BASE + HEX_MSG_BASE);
+//    int i;
+//
+//    clear_hex_message_buffer();
+//
+//    for (i = 0; i < HEX_MSG_MAX_LEN - 1 && msg[i] != '\0'; i++) {
+//        hex_msg[i] = msg[i];
+//    }
+//
+//    hex_msg[i] = '\0';
+//    write_instr(HEX_MSG_LEN, (uint32_t)i);
+//}
+//
+//static void clear_instruction_registers(void)
+//{
+//    int i;
+//
+//    for (i = 0; i < INSTRUCTION_SIZE; i += 4) {
+//        IOWR_32DIRECT(INSTRUCTION_BASE, i, 0);
+//    }
+//
+//    clear_hex_message_buffer();
+//}
+//
+///* =========================
+//   Text helpers
+//   ========================= */
+//
+//static int is_upper_char(char c)
+//{
+//    return (c >= 'A' && c <= 'Z');
+//}
+//
+//static int is_digit_char(char c)
+//{
+//    return (c >= '0' && c <= '9');
+//}
+//
+//static int is_alnum_or_space(char c)
+//{
+//    if (c >= 'a' && c <= 'z') return 1;
+//    if (c >= 'A' && c <= 'Z') return 1;
+//    if (c >= '0' && c <= '9') return 1;
+//    if (c == ' ') return 1;
+//    return 0;
+//}
+//
+//static void normalize_text(char *text)
+//{
+//    int i;
+//    int j = 0;
+//    char temp[DECODER_TEXT_MAX];
+//
+//    for (i = 0; i < DECODER_TEXT_MAX; i++) {
+//        temp[i] = '\0';
+//    }
+//
+//    /*
+//       Convert to lowercase.
+//       Keep letters, numbers, and spaces.
+//       Convert underscore/dash to space.
+//       Remove weird symbols.
+//    */
+//    for (i = 0; text[i] != '\0' && j < DECODER_TEXT_MAX - 1; i++) {
+//        char c = text[i];
+//
+//        if (is_upper_char(c)) {
+//            c = c + ('a' - 'A');
+//        }
+//
+//        if (c == '_' || c == '-') {
+//            temp[j++] = ' ';
+//        } else if (is_alnum_or_space(c)) {
+//            temp[j++] = c;
+//        }
+//    }
+//
+//    temp[j] = '\0';
+//
+//    for (i = 0; i < DECODER_TEXT_MAX; i++) {
+//        text[i] = temp[i];
+//    }
+//}
+//
+//static int contains_word(const char *text, const char *key)
+//{
+//    return strstr(text, key) != NULL;
+//}
+//
+//static int find_first_number(const char *text)
+//{
+//    int i;
+//
+//    for (i = 0; text[i] != '\0'; i++) {
+//        if (is_digit_char(text[i])) {
+//            return atoi(&text[i]);
+//        }
+//    }
+//
+//    return -1;
+//}
+//
+//static int find_largest_number(const char *text)
+//{
+//    int i;
+//    int best = -1;
+//
+//    for (i = 0; text[i] != '\0'; i++) {
+//        if (is_digit_char(text[i])) {
+//            int value = atoi(&text[i]);
+//
+//            if (value > best) {
+//                best = value;
+//            }
+//
+//            while (is_digit_char(text[i])) {
+//                i++;
+//            }
+//
+//            if (text[i] == '\0') {
+//                break;
+//            }
+//        }
+//    }
+//
+//    return best;
+//}
+//
+//static int find_number_after_key(const char *text, const char *key)
+//{
+//    char *p = strstr((char *)text, key);
+//
+//    if (p == NULL) {
+//        return -1;
+//    }
+//
+//    p += strlen(key);
+//
+//    while (*p != '\0' && !is_digit_char(*p)) {
+//        p++;
+//    }
+//
+//    if (*p == '\0') {
+//        return -1;
+//    }
+//
+//    return atoi(p);
+//}
+//
+//static int find_number_before_key(const char *text, const char *key)
+//{
+//    char *p = strstr((char *)text, key);
+//    int end;
+//    int start;
+//    char num_buf[16];
+//    int n = 0;
+//
+//    if (p == NULL) {
+//        return -1;
+//    }
+//
+//    end = (int)(p - text) - 1;
+//
+//    while (end >= 0 && !is_digit_char(text[end])) {
+//        end--;
+//    }
+//
+//    if (end < 0) {
+//        return -1;
+//    }
+//
+//    start = end;
+//
+//    while (start >= 0 && is_digit_char(text[start])) {
+//        start--;
+//    }
+//
+//    start++;
+//
+//    while (start <= end && n < 15) {
+//        num_buf[n++] = text[start++];
+//    }
+//
+//    num_buf[n] = '\0';
+//
+//    return atoi(num_buf);
+//}
+//
+//static int find_period_ms(const char *text)
+//{
+//    int value;
+//
+//    /*
+//       Prefer number before second/sec.
+//       Examples:
+//       "every 5 second"
+//       "5 second"
+//       "5sec"
+//    */
+//    value = find_number_before_key(text, "seconds");
+//    if (value > 0) return value * 1000;
+//
+//    value = find_number_before_key(text, "second");
+//    if (value > 0) return value * 1000;
+//
+//    value = find_number_before_key(text, "secs");
+//    if (value > 0) return value * 1000;
+//
+//    value = find_number_before_key(text, "sec");
+//    if (value > 0) return value * 1000;
+//
+//    /*
+//       Backup:
+//       number after "every"
+//    */
+//    value = find_number_after_key(text, "every");
+//    if (value > 0) return value * 1000;
+//
+//    /*
+//       Backup:
+//       number after "blink"
+//    */
+//    value = find_number_after_key(text, "blink");
+//    if (value > 0) return value * 1000;
+//
+//    return -1;
+//}
+//
+//static int has_blink_mode(const char *text)
+//{
+//    if (contains_word(text, "blinking")) return 1;
+//    if (contains_word(text, "blink")) return 1;
+//    if (contains_word(text, "every")) return 1;
+//
+//    return 0;
+//}
+//
+//static int has_static_mode(const char *text)
+//{
+//    if (contains_word(text, "static")) return 1;
+//
+//    return 0;
+//}
+//
+///* =========================
+//   HEX message extraction
+//   ========================= */
+//
+//static int find_marker_index(const char *text, const char *key)
+//{
+//    char *p = strstr((char *)text, key);
+//
+//    if (p == NULL) {
+//        return -1;
+//    }
+//
+//    return (int)(p - text);
+//}
+//
+//static int min_positive_index(int current, int candidate)
+//{
+//    if (candidate < 0) return current;
+//    if (current < 0) return candidate;
+//    if (candidate < current) return candidate;
+//    return current;
+//}
+//
+//static void extract_hex_message(const char *text, char *out_msg)
+//{
+//    int start = -1;
+//    int end = -1;
+//    int i;
+//    int j = 0;
+//
+//    for (i = 0; i < LOCAL_MSG_MAX; i++) {
+//        out_msg[i] = '\0';
+//    }
+//
+//    /*
+//       Prefer extracting after "hex" if both display and hex exist.
+//    */
+//    start = find_marker_index(text, "hex");
+//
+//    if (start >= 0) {
+//        start += 3;
+//    } else {
+//        start = find_marker_index(text, "display");
+//
+//        if (start >= 0) {
+//            start += 7;
+//        } else {
+//            start = find_marker_index(text, "show");
+//
+//            if (start >= 0) {
+//                start += 4;
+//            } else {
+//                start = find_marker_index(text, "message");
+//
+//                if (start >= 0) {
+//                    start += 7;
+//                }
+//            }
+//        }
+//    }
+//
+//    if (start < 0) {
+//        return;
+//    }
+//
+//    while (text[start] == ' ') {
+//        start++;
+//    }
+//
+//    /*
+//       Stop if another command begins after the HEX message.
+//       This prevents HEX from eating LED/speaker command text.
+//    */
+//    end = -1;
+//    end = min_positive_index(end, find_marker_index(text + start, " led module"));
+//    end = min_positive_index(end, find_marker_index(text + start, " module"));
+//    end = min_positive_index(end, find_marker_index(text + start, " speaker"));
+//    end = min_positive_index(end, find_marker_index(text + start, " frequency"));
+//    end = min_positive_index(end, find_marker_index(text + start, " turn on"));
+//    end = min_positive_index(end, find_marker_index(text + start, " rgb"));
+//    end = min_positive_index(end, find_marker_index(text + start, " spk"));
+//
+//    if (end < 0) {
+//        end = strlen(text + start);
+//    }
+//
+//    for (i = start; text[i] != '\0' && (i - start) < end && j < LOCAL_MSG_MAX - 1; i++) {
+//        out_msg[j++] = text[i];
+//    }
+//
+//    out_msg[j] = '\0';
+//
+//    while (j > 0 && out_msg[j - 1] == ' ') {
+//        out_msg[j - 1] = '\0';
+//        j--;
+//    }
+//}
+//
+///* =========================
+//   LED module decoder
+//   ========================= */
+//
+//static uint32_t decode_led_module_color_mask(const char *text)
+//{
+//    uint32_t color_mask = LEDMOD_COLOR_NONE;
+//
+//    if (contains_word(text, "red")) {
+//        color_mask |= LEDMOD_COLOR_RED;
+//    }
+//
+//    if (contains_word(text, "green")) {
+//        color_mask |= LEDMOD_COLOR_GREEN;
+//    }
+//
+//    if (contains_word(text, "yellow")) {
+//        color_mask |= LEDMOD_COLOR_YELLOW;
+//    }
+//
+//    return color_mask;
+//}
+//
+//static void decode_led_module(const char *text, uint32_t *target_mask, uint32_t *error_flags)
+//{
+//    uint32_t color_mask;
+//    uint32_t mode;
+//    int period_ms;
+//
+//    if (!contains_word(text, "module") && !contains_word(text, "ledmodule")) {
+//        return;
+//    }
+//
+//    color_mask = decode_led_module_color_mask(text);
+//
+//    if (color_mask == LEDMOD_COLOR_NONE) {
+//        *error_flags |= ERR_MISSING_COLOR;
+//        color_mask = LEDMOD_COLOR_GREEN;
+//    }
+//
+//    if (has_blink_mode(text)) {
+//        mode = MODE_BLINK;
+//        period_ms = find_period_ms(text);
+//
+//        if (period_ms <= 0) {
+//            *error_flags |= ERR_MISSING_PERIOD;
+//            period_ms = 1000;
+//        }
+//    } else {
+//        mode = MODE_STATIC;
+//        period_ms = 0;
+//    }
+//
+//    write_instr(LEDMOD_ENABLE, 1);
+//    write_instr(LEDMOD_COLOR_MASK, color_mask);
+//    write_instr(LEDMOD_MODE, mode);
+//    write_instr(LEDMOD_PERIOD_MS, (uint32_t)period_ms);
+//
+//    *target_mask |= TARGET_LED_MODULE;
+//}
+//
+///* =========================
+//   FPGA LED decoder
+//   ========================= */
+//
+//static void decode_fpga_led(const char *text, uint32_t *target_mask, uint32_t *error_flags)
+//{
+//    int led_count;
+//    int period_ms;
+//    uint32_t direction;
+//    uint32_t mode;
+//
+//    /*
+//       If "module" exists, this is LED module, not FPGA LED.
+//    */
+//    if (contains_word(text, "module") || contains_word(text, "ledmodule")) {
+//        return;
+//    }
+//
+//    /*
+//       FPGA LED needs led/turnon/turn on/left/right.
+//    */
+//    if (!contains_word(text, "led") &&
+//        !contains_word(text, "turnon") &&
+//        !contains_word(text, "turn on") &&
+//        !contains_word(text, "left") &&
+//        !contains_word(text, "right")) {
+//        return;
+//    }
+//
+//    led_count = find_number_before_key(text, "led");
+//
+//    if (led_count <= 0) {
+//        led_count = find_number_after_key(text, "turn on");
+//    }
+//
+//    if (led_count <= 0) {
+//        led_count = find_number_after_key(text, "turnon");
+//    }
+//
+//    if (led_count <= 0) {
+//        *error_flags |= ERR_MISSING_LED_COUNT;
+//        led_count = 1;
+//    }
+//
+//    if (led_count > 10) {
+//        led_count = 10;
+//    }
+//
+//    if (contains_word(text, "right")) {
+//        direction = DIR_RIGHT;
+//    } else if (contains_word(text, "left")) {
+//        direction = DIR_LEFT;
+//    } else {
+//        *error_flags |= ERR_MISSING_DIRECTION;
+//        direction = DIR_LEFT;
+//    }
+//
+//    if (has_blink_mode(text)) {
+//        mode = MODE_BLINK;
+//        period_ms = find_period_ms(text);
+//
+//        if (period_ms <= 0) {
+//            *error_flags |= ERR_MISSING_PERIOD;
+//            period_ms = 1000;
+//        }
+//    } else {
+//        mode = MODE_STATIC;
+//        period_ms = 0;
+//    }
+//
+//    write_instr(FPGALED_ENABLE, 1);
+//    write_instr(FPGALED_COUNT, (uint32_t)led_count);
+//    write_instr(FPGALED_DIRECTION, direction);
+//    write_instr(FPGALED_MODE, mode);
+//    write_instr(FPGALED_PERIOD_MS, (uint32_t)period_ms);
+//
+//    *target_mask |= TARGET_FPGA_LED;
+//}
+//
+///* =========================
+//   HEX decoder
+//   ========================= */
+//
+//static void decode_hex_display(const char *text, uint32_t *target_mask, uint32_t *error_flags)
+//{
+//    char msg[LOCAL_MSG_MAX];
+//
+//    if (!contains_word(text, "display") &&
+//        !contains_word(text, "hex") &&
+//        !contains_word(text, "show") &&
+//        !contains_word(text, "message")) {
+//        return;
+//    }
+//
+//    extract_hex_message(text, msg);
+//
+//    if (msg[0] == '\0') {
+//        *error_flags |= ERR_MISSING_HEX_MSG;
+//        strcpy(msg, "nomsg");
+//    }
+//
+//    write_instr(HEX_ENABLE, 1);
+//    write_instr(HEX_MODE, MODE_SCROLL);
+//    write_hex_message(msg);
+//
+//    *target_mask |= TARGET_HEX;
+//}
+//
+///* =========================
+//   Speaker decoder
+//   ========================= */
+//
+//static void decode_speaker(const char *text, uint32_t *target_mask, uint32_t *error_flags)
+//{
+//    int freq;
+//
+//    if (!contains_word(text, "speaker") &&
+//        !contains_word(text, "frequency") &&
+//        !contains_word(text, "hz") &&
+//        !contains_word(text, "tone") &&
+//        !contains_word(text, "sound")) {
+//        return;
+//    }
+//
+//    freq = find_number_before_key(text, "hz");
+//
+//    if (freq <= 0) {
+//        freq = find_number_after_key(text, "frequency");
+//    }
+//
+//    if (freq <= 0) {
+//        freq = find_number_after_key(text, "speaker");
+//    }
+//
+//    if (freq <= 0) {
+//        freq = find_largest_number(text);
+//    }
+//
+//    if (freq <= 0) {
+//        *error_flags |= ERR_MISSING_FREQUENCY;
+//        freq = 1000;
+//    }
+//
+//    /*
+//       Clamp to a practical range.
+//       You can change this depending on your speaker code.
+//    */
+//    if (freq < 50) {
+//        freq = 50;
+//    }
+//
+//    if (freq > 50000) {
+//        freq = 50000;
+//    }
+//
+//    write_instr(SPEAKER_ENABLE, 1);
+//    write_instr(SPEAKER_FREQ_HZ, (uint32_t)freq);
+//    write_instr(SPEAKER_DURATION_MS, 0);
+//
+//    *target_mask |= TARGET_SPEAKER;
+//}
+//
+///* =========================
+//   Printing decoded result
+//   ========================= */
+//
+//static const char *mode_to_string(uint32_t mode)
+//{
+//    if (mode == MODE_BLINK) return "blink";
+//    if (mode == MODE_SCROLL) return "scroll";
+//    return "static";
+//}
+//
+//static const char *direction_to_string(uint32_t dir)
+//{
+//    if (dir == DIR_RIGHT) return "right";
+//    return "left";
+//}
+//
+//static void print_led_module_colors(uint32_t mask)
+//{
+//    int first = 1;
+//
+//    if (mask & LEDMOD_COLOR_RED) {
+//        printf("red");
+//        first = 0;
+//    }
+//
+//    if (mask & LEDMOD_COLOR_GREEN) {
+//        if (!first) printf("+");
+//        printf("green");
+//        first = 0;
+//    }
+//
+//    if (mask & LEDMOD_COLOR_YELLOW) {
+//        if (!first) printf("+");
+//        printf("yellow");
+//        first = 0;
+//    }
+//
+//    if (first) {
+//        printf("none");
+//    }
+//}
+//
+//static void print_hex_message_from_sdram(void)
+//{
+//    volatile char *msg = (volatile char *)(INSTRUCTION_BASE + HEX_MSG_BASE);
+//    int len = (int)read_instr(HEX_MSG_LEN);
+//    int i;
+//
+//    for (i = 0; i < len && i < HEX_MSG_MAX_LEN; i++) {
+//        printf("%c", msg[i]);
+//    }
+//}
+//
+//static void print_decoded_instruction(uint32_t target_mask, uint32_t error_flags)
+//{
+//    printf("\n========== DECODING DONE ==========\n");
+//
+//    printf("CMD_VALID        = %lu\n", (unsigned long)read_instr(CMD_VALID));
+//    printf("CMD_TARGET_MASK  = 0x%02lX\n", (unsigned long)target_mask);
+//    printf("CMD_SEQUENCE_ID  = %lu\n", (unsigned long)read_instr(CMD_SEQUENCE_ID));
+//    printf("CMD_ERROR_FLAGS  = 0x%02lX\n", (unsigned long)error_flags);
+//
+//    printf("\nInstruction says:\n");
+//
+//    if (target_mask & TARGET_HEX) {
+//        printf("- HEX Display: scroll message \"");
+//        print_hex_message_from_sdram();
+//        printf("\"\n");
+//    }
+//
+//    if (target_mask & TARGET_LED_MODULE) {
+//        uint32_t color_mask = read_instr(LEDMOD_COLOR_MASK);
+//        uint32_t mode = read_instr(LEDMOD_MODE);
+//        uint32_t period = read_instr(LEDMOD_PERIOD_MS);
+//
+//        printf("- LED Module: ");
+//        print_led_module_colors(color_mask);
+//        printf(", mode=%s", mode_to_string(mode));
+//
+//        if (mode == MODE_BLINK) {
+//            printf(", period=%lu ms", (unsigned long)period);
+//        }
+//
+//        printf("\n");
+//    }
+//
+//    if (target_mask & TARGET_FPGA_LED) {
+//        uint32_t count = read_instr(FPGALED_COUNT);
+//        uint32_t dir = read_instr(FPGALED_DIRECTION);
+//        uint32_t mode = read_instr(FPGALED_MODE);
+//        uint32_t period = read_instr(FPGALED_PERIOD_MS);
+//
+//        printf("- FPGA LEDs: turn on %lu LEDs from %s, mode=%s",
+//               (unsigned long)count,
+//               direction_to_string(dir),
+//               mode_to_string(mode));
+//
+//        if (mode == MODE_BLINK) {
+//            printf(", period=%lu ms", (unsigned long)period);
+//        }
+//
+//        printf("\n");
+//    }
+//
+//    if (target_mask & TARGET_SPEAKER) {
+//        uint32_t freq = read_instr(SPEAKER_FREQ_HZ);
+//
+//        printf("- Speaker: frequency=%lu Hz\n", (unsigned long)freq);
+//    }
+//
+//    if (target_mask == TARGET_NONE) {
+//        printf("- No known peripheral decoded\n");
+//    }
+//
+//    printf("===================================\n\n");
+//    fflush(stdout);
+//}
+//
+///* =========================
+//   Public decoder functions
+//   ========================= */
+//
+//void decoder_init(void)
+//{
+//    clear_instruction_registers();
+//
+//    write_status(STATUS_CMD_READY, 0);
+//    write_status(STATUS_CMD_ACK, 0);
+//}
+//
+//void decoder_decode_from_sdram(void)
+//{
+//    volatile char *src = (volatile char *)TEXT_BUFFER_BASE;
+//    char text[DECODER_TEXT_MAX];
+//    uint32_t target_mask = TARGET_NONE;
+//    uint32_t error_flags = ERR_NONE;
+//    int i;
+//
+//    if (read_status(STATUS_TEXT_READY) == 0) {
+//        return;
+//    }
+//
+//    for (i = 0; i < DECODER_TEXT_MAX; i++) {
+//        text[i] = '\0';
+//    }
+//
+//    for (i = 0; i < DECODER_TEXT_MAX - 1; i++) {
+//        text[i] = src[i];
+//
+//        if (src[i] == '\0') {
+//            break;
+//        }
+//    }
+//
+//    text[DECODER_TEXT_MAX - 1] = '\0';
+//
+//    printf("\nDecoder: raw SDRAM text = %s\n", text);
+//
+//    normalize_text(text);
+//
+//    printf("Decoder: normalized text = %s\n", text);
+//    fflush(stdout);
+//
+//    clear_instruction_registers();
+//
+//    /*
+//       Decode every possible peripheral.
+//       One sentence can activate multiple peripherals.
+//    */
+//    decode_hex_display(text, &target_mask, &error_flags);
+//    decode_led_module(text, &target_mask, &error_flags);
+//    decode_speaker(text, &target_mask, &error_flags);
+//    decode_fpga_led(text, &target_mask, &error_flags);
+//
+//    if (target_mask == TARGET_NONE) {
+//        error_flags |= ERR_UNKNOWN_PERIPHERAL;
+//    }
+//
+//    command_sequence++;
+//
+//    write_instr(CMD_VALID, 1);
+//    write_instr(CMD_TARGET_MASK, target_mask);
+//    write_instr(CMD_SEQUENCE_ID, command_sequence);
+//    write_instr(CMD_ERROR_FLAGS, error_flags);
+//
+//    /*
+//       Status update.
+//       Decoder consumed text and produced command registers.
+//    */
+//    write_status(STATUS_TEXT_READY, 0);
+//    write_status(STATUS_CMD_READY, 1);
+//    write_status(STATUS_CMD_ACK, 0);
+//    write_status(STATUS_LAST_ERROR, error_flags);
+//
+//    print_decoded_instruction(target_mask, error_flags);
+//}

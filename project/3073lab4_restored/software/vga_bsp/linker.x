@@ -4,7 +4,7 @@
  * Machine generated for CPU 'vga_proc' in SOPC Builder design 'NIOSII_WEEK3'
  * SOPC Builder design path: ../../NIOSII_WEEK3.sopcinfo
  *
- * Generated: Wed May 06 11:43:43 SGT 2026
+ * Generated: Wed May 06 08:52:57 SGT 2026
  */
 
 /*
