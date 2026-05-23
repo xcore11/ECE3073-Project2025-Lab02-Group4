@@ -149,6 +149,8 @@ C_SRCS += menu.c
 C_SRCS += snake.c
 C_SRCS += time.c
 C_SRCS += debug.c
+C_SRCS += draw.c
+C_SRCS += ship.c
 CXX_SRCS :=
 ASM_SRCS :=
 

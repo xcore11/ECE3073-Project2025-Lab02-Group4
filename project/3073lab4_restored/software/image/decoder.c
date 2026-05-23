@@ -2,16 +2,12 @@
 #include <string.h>
 #include <ctype.h>
 #include <unistd.h>
+#include <stdint.h>
 
 #include "io.h"
 #include "system.h"
 #include "decoder.h"
-
-/* ============================================================
-   SNAKE SDRAM MAILBOX
-   ============================================================ */
-
-#define SHARED_FLAGS_BASE          0x05212000
+#include "shared_memory.h"
 
 #define SNAKE_MB_READY             0x100
 #define SNAKE_MB_ACK               0x104
@@ -22,13 +18,7 @@
 #define SNAKE_MB_PAYLOAD_LEN       0x118
 #define SNAKE_MB_STATUS            0x11C
 #define SNAKE_MB_PAYLOAD           0x120
-
 #define SNAKE_MB_PAYLOAD_MAX       256
-
-/* ============================================================
-   COMMAND TYPES
-   These must match snake.c / VGA mailbox command decode.
-   ============================================================ */
 
 #define SNAKE_CMD_NONE             0
 #define SNAKE_CMD_SET_APPLE        1
@@ -38,1520 +28,655 @@
 #define SNAKE_CMD_CLEAR_ARENA      5
 #define SNAKE_CMD_CLEAR_WALLS      6
 #define SNAKE_CMD_ADD_APPLES       7
-
-/*
-   WALL + PORTAL ONLY BUILD:
-   Apples are intentionally ignored in this decoder version. The apple command
-   parser is left out of the active stream path so apple rows do not affect wall
-   or portal updates.
-*/
-
-/* ============================================================
-   GRID LIMITS
-   ============================================================ */
+#define SNAKE_CMD_CLEAR_CELLS      8
 
 #define SNAKE_GRID_W               32
 #define SNAKE_GRID_H               22
+#define MAILBOX_WAIT_RETRY         250
+#define ROW_MAX                    16
 
-/* ============================================================
-   STREAM SETTINGS
-   ============================================================ */
+#define SNAKE_STATE_NONE           0
+#define SNAKE_STATE_WALL           1
+#define SNAKE_STATE_APPLE          2
+#define SNAKE_STATE_PORTA          3
+#define SNAKE_STATE_PORTB          4
+#define SNAKE_STATE_ERASE          5
 
-#define DECODER_STREAM_MAX         512
-#define MAILBOX_WAIT_RETRY         1000
+#define BATTLE_STATE_NONE          0
+#define BATTLE_STATE_SHIP          1
+#define BATTLE_STATE_ERASE         2
 
-/* ============================================================
-   STREAM BUFFER
-   ============================================================ */
+#ifndef BATTLE_GRID_SEQ
+#define BATTLE_GRID_SEQ                0xA40
+#define BATTLE_GRID_READY              0xA44
+#define BATTLE_GRID_BASE               0xA80
+#endif
 
-static char stream_buf[DECODER_STREAM_MAX];
-static unsigned int stream_len = 0;
-/*
-   Set by parse_xy_pairs_range() when at least one valid coordinate was parsed,
-   then non-coordinate trailing junk was found. That means the current text
-   command should be considered complete and removed from the stream, otherwise
-   a later wall command can be absorbed into an old apple command or vice versa.
+#ifndef DRAW_BG_READY
+#define DRAW_BG_READY                  0x980
+#define DRAW_BG_SEQ                    0x984
+#define DRAW_BG_GRID                   0x1000
+#endif
 
-   NOTE:
-   Do NOT suppress exact duplicate mailbox commands here. The same arena command
-   may legitimately be sent again on the next scroll/pass. Suppressing duplicates
-   was what made the first try work but the second try appear to do nothing.
-*/
-static int parse_stopped_on_trailing_junk = 0;
+#ifndef FLAG_RT_ACTIVITY_SEQ
+#define FLAG_RT_ACTIVITY_SEQ           0x870
+#define FLAG_RT_PANEL_MODE             0x874
+#define FLAG_RT_LAST_RESULT            0x878
+#endif
 
-/* ============================================================
-   PORTAL LOCAL STATE
+static int snake_current_state = SNAKE_STATE_NONE;
+static int snake_portal_a_valid = 0;
+static int snake_portal_b_valid = 0;
+static unsigned char snake_portal_ax = 0;
+static unsigned char snake_portal_ay = 0;
+static unsigned char snake_portal_bx = 0;
+static unsigned char snake_portal_by = 0;
 
-   Portal command can arrive in either form:
+static int draw_current_color = 0xFF;
+static unsigned int draw_grid_seq = 0;
+static int draw_batch_mode = 0;
+static int draw_grid_dirty = 0;
+static int battle_current_state = BATTLE_STATE_NONE;
 
-       SNAKEPORTALAX8Y3
-       SNAKEPORTALBX21Y5
-
-   or compact form:
-
-       SNAKEPORTALAX8Y3X21Y5
-
-   In compact form, the first XY pair is portal A and the second XY pair is
-   portal B. The decoder sends SNAKE_CMD_SET_PORTALS only when both A and B
-   are known.
-   ============================================================ */
-
-static int portal_a_valid = 0;
-static int portal_b_valid = 0;
-
-static unsigned char portal_ax = 0;
-static unsigned char portal_ay = 0;
-static unsigned char portal_bx = 0;
-static unsigned char portal_by = 0;
-
-/* ============================================================
-   BASIC HELPERS
-   ============================================================ */
+static void decoder_publish_realtime_activity(int panel_mode, int result)
+{
+    uint32_t seq = IORD_32DIRECT(SHARED_FLAGS_BASE, FLAG_RT_ACTIVITY_SEQ);
+    IOWR_32DIRECT(SHARED_FLAGS_BASE, FLAG_RT_PANEL_MODE, (uint32_t)panel_mode);
+    IOWR_32DIRECT(SHARED_FLAGS_BASE, FLAG_RT_LAST_RESULT, (uint32_t)result);
+    IOWR_32DIRECT(SHARED_FLAGS_BASE, FLAG_RT_ACTIVITY_SEQ, seq + 1);
+}
 
 void decoder_reset_stream(void)
 {
-    stream_len = 0;
-    stream_buf[0] = '\0';
-
-    portal_a_valid = 0;
-    portal_b_valid = 0;
-
-    parse_stopped_on_trailing_junk = 0;
+    snake_current_state = SNAKE_STATE_NONE;
+    snake_portal_a_valid = 0;
+    snake_portal_b_valid = 0;
+    snake_portal_ax = 0;
+    snake_portal_ay = 0;
+    snake_portal_bx = 0;
+    snake_portal_by = 0;
+    draw_current_color = 0xFF;
+    battle_current_state = BATTLE_STATE_NONE;
 }
 
-static int coord_valid(int x, int y)
+static void normalize_row(const char *text, unsigned int len, char *out, unsigned int out_cap)
 {
-    if (x < 0 || x >= SNAKE_GRID_W) return 0;
-    if (y < 0 || y >= SNAKE_GRID_H) return 0;
+    unsigned int i;
+    unsigned int w = 0;
+
+    if (out_cap == 0)
+        return;
+
+    for (i = 0; i < len && text[i] != '\0' && w < out_cap - 1; i++)
+    {
+        unsigned char c = (unsigned char)text[i];
+
+        if (c == '\r' || c == '\n' || c == '\t' || c == ' ')
+            continue;
+
+        if (c >= 'a' && c <= 'z')
+            c = (unsigned char)(c - 'a' + 'A');
+
+        if ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'))
+            out[w++] = (char)c;
+    }
+
+    out[w] = '\0';
+}
+
+static int parse_two_digit(const char *s, int *value)
+{
+    if (s[0] < '0' || s[0] > '9') return 0;
+    if (s[1] < '0' || s[1] > '9') return 0;
+    *value = (s[0] - '0') * 10 + (s[1] - '0');
     return 1;
 }
 
-static void snake_write_payload_byte(unsigned int index, unsigned char value)
+static int parse_xy_row(const char *row, int *x, int *y)
 {
-    volatile unsigned char *payload;
+    if (row[0] != 'X')
+        return 0;
 
-    payload = (volatile unsigned char *)(SHARED_FLAGS_BASE + SNAKE_MB_PAYLOAD);
-    payload[index] = value;
+    if (!parse_two_digit(&row[1], x))
+        return 0;
+
+    if (row[3] != 'Y' && row[3] != 'T')
+        return 0;
+
+    if (!parse_two_digit(&row[4], y))
+        return 0;
+
+    return 1;
 }
 
-static int snake_send_mailbox_command(
-    unsigned int cmd_type,
-    unsigned int count,
-    unsigned int payload_len,
-    const unsigned char *payload
-)
+static int snake_coord_valid(int x, int y)
+{
+    return (x >= 0 && x < SNAKE_GRID_W && y >= 0 && y < SNAKE_GRID_H);
+}
+
+static int draw_coord_valid(int x, int y)
+{
+    return (x >= 0 && x < DRAW_GRID_W && y >= 0 && y < DRAW_GRID_H);
+}
+
+static int battle_coord_valid(int x, int y)
+{
+    return (x >= 0 && x < BATTLE_GRID_W && y >= 0 && y < BATTLE_GRID_H);
+}
+
+static void snake_write_payload_word(unsigned int word_index, uint32_t value)
+{
+    IOWR_32DIRECT(SHARED_FLAGS_BASE, SNAKE_MB_PAYLOAD + (word_index * 4), value);
+}
+
+static int snake_send_mailbox_command_words(unsigned int cmd_type,
+                                            unsigned int count,
+                                            unsigned int word_count,
+                                            const uint32_t *payload_words)
 {
     static unsigned int seq = 0;
     unsigned int i;
     unsigned int wait_count = 0;
+    unsigned int payload_len = word_count * 4;
 
     while (IORD_32DIRECT(SHARED_FLAGS_BASE, SNAKE_MB_READY) != 0)
     {
         usleep(1000);
         wait_count++;
-
         if (wait_count >= MAILBOX_WAIT_RETRY)
-        {
             return DECODER_ERR_MAILBOX_BUSY;
-        }
     }
 
     if (payload_len > SNAKE_MB_PAYLOAD_MAX)
-    {
-        payload_len = SNAKE_MB_PAYLOAD_MAX;
-    }
+        return DECODER_ERR_BAD_FORMAT;
 
-    if (payload != 0)
-    {
-        for (i = 0; i < payload_len; i++)
-        {
-            snake_write_payload_byte(i, payload[i]);
-        }
-    }
+    for (i = 0; payload_words != 0 && i < word_count; i++)
+        snake_write_payload_word(i, payload_words[i]);
 
     seq++;
-
     IOWR_32DIRECT(SHARED_FLAGS_BASE, SNAKE_MB_TYPE, cmd_type);
     IOWR_32DIRECT(SHARED_FLAGS_BASE, SNAKE_MB_COUNT, count);
     IOWR_32DIRECT(SHARED_FLAGS_BASE, SNAKE_MB_PAYLOAD_LEN, payload_len);
     IOWR_32DIRECT(SHARED_FLAGS_BASE, SNAKE_MB_ACK, 0);
     IOWR_32DIRECT(SHARED_FLAGS_BASE, SNAKE_MB_SEQ, seq);
-
-    /* READY must be written last. */
     IOWR_32DIRECT(SHARED_FLAGS_BASE, SNAKE_MB_READY, 1);
-
     return DECODER_OK_SENT;
 }
 
-static int parse_number_range(
-    const char *buf,
-    unsigned int *pos,
-    unsigned int end,
-    int *out_value
-)
+static int snake_send_mailbox_command(unsigned int cmd_type,
+                                      unsigned int count,
+                                      unsigned int payload_len,
+                                      const unsigned char *payload)
 {
-    int value = 0;
-    int found_digit = 0;
-
-    while (*pos < end && buf[*pos] >= '0' && buf[*pos] <= '9')
-    {
-        found_digit = 1;
-        value = value * 10 + (buf[*pos] - '0');
-        (*pos)++;
-    }
-
-    if (!found_digit)
-    {
-        return 0;
-    }
-
-    *out_value = value;
-    return 1;
+    (void)payload_len;
+    (void)payload;
+    return snake_send_mailbox_command_words(cmd_type, count, 0, 0);
 }
 
-/*
-   Parse XnYn pairs from buf[start..end).
-
-   If the last pair is incomplete because the next SPI chunk has not arrived,
-   this returns success with only completed pairs.
-*/
-static int skip_repeated_command_tail_before_x(
-    const char *buf,
-    unsigned int *pos,
-    unsigned int end,
-    unsigned int completed_pair_count
-)
+static int snake_send_one_xy(unsigned int cmd, int x, int y)
 {
-    unsigned int p;
-    unsigned int limit;
+    uint32_t payload_words[2];
 
+    if (!snake_coord_valid(x, y))
+        return DECODER_ERR_OUT_OF_RANGE;
+
+    payload_words[0] = (uint32_t)x;
+    payload_words[1] = (uint32_t)y;
+
+    return snake_send_mailbox_command_words(cmd, 1, 2, payload_words);
+}
+
+static int snake_send_portals_if_ready(void)
+{
+    uint32_t payload_words[4];
+
+    if (!snake_portal_a_valid || !snake_portal_b_valid)
+        return DECODER_OK_WAITING_PORTAL;
+
+    payload_words[0] = (uint32_t)snake_portal_ax;
+    payload_words[1] = (uint32_t)snake_portal_ay;
+    payload_words[2] = (uint32_t)snake_portal_bx;
+    payload_words[3] = (uint32_t)snake_portal_by;
+
+    return snake_send_mailbox_command_words(SNAKE_CMD_SET_PORTALS, 2, 4, payload_words);
+}
+
+static int decode_snake_row(const char *row)
+{
+    int x;
+    int y;
+
+    if (row[0] == '\0')
+        return DECODER_NO_COMMAND;
+
+    if (strcmp(row, "X99Y99") == 0 || strcmp(row, "X99T99") == 0)
+        return DECODER_NO_COMMAND;
+
+    if (strcmp(row, "WALL") == 0 || strcmp(row, "WALLS") == 0)
+    {
+        snake_current_state = SNAKE_STATE_WALL;
+        return DECODER_OK_STATE_UPDATED;
+    }
+    if (strcmp(row, "APPLE") == 0 || strcmp(row, "APPLES") == 0)
+    {
+        snake_current_state = SNAKE_STATE_APPLE;
+        return DECODER_OK_STATE_UPDATED;
+    }
+    if (strcmp(row, "PORTA") == 0 || strcmp(row, "PORTALA") == 0)
+    {
+        snake_current_state = SNAKE_STATE_PORTA;
+        return DECODER_OK_STATE_UPDATED;
+    }
+    if (strcmp(row, "PORTB") == 0 || strcmp(row, "PORTALB") == 0)
+    {
+        snake_current_state = SNAKE_STATE_PORTB;
+        return DECODER_OK_STATE_UPDATED;
+    }
+    if (strcmp(row, "ERASE") == 0 || strcmp(row, "EMPTY") == 0)
+    {
+        snake_current_state = SNAKE_STATE_ERASE;
+        return DECODER_OK_STATE_UPDATED;
+    }
+    if (strcmp(row, "CLEAR") == 0 || strcmp(row, "RESET") == 0 ||
+        strcmp(row, "CLR") == 0 || strcmp(row, "CLEARALL") == 0)
+    {
+        snake_current_state = SNAKE_STATE_NONE;
+        snake_portal_a_valid = 0;
+        snake_portal_b_valid = 0;
+        return snake_send_mailbox_command(SNAKE_CMD_CLEAR_ARENA, 0, 0, 0);
+    }
+    if (strcmp(row, "CLRWAL") == 0 || strcmp(row, "NOWALL") == 0)
+    {
+        snake_current_state = SNAKE_STATE_NONE;
+        return snake_send_mailbox_command(SNAKE_CMD_CLEAR_WALLS, 0, 0, 0);
+    }
+
+    if (!parse_xy_row(row, &x, &y))
+        return DECODER_NO_COMMAND;
+
+    if (snake_current_state == SNAKE_STATE_WALL)
+        return snake_send_one_xy(SNAKE_CMD_ADD_WALLS, x, y);
+    if (snake_current_state == SNAKE_STATE_APPLE)
+        return snake_send_one_xy(SNAKE_CMD_ADD_APPLES, x, y);
+    if (snake_current_state == SNAKE_STATE_ERASE)
+        return snake_send_one_xy(SNAKE_CMD_CLEAR_CELLS, x, y);
+    if (snake_current_state == SNAKE_STATE_PORTA)
+    {
+        if (!snake_coord_valid(x, y))
+            return DECODER_ERR_OUT_OF_RANGE;
+        snake_portal_ax = (unsigned char)x;
+        snake_portal_ay = (unsigned char)y;
+        snake_portal_a_valid = 1;
+        return snake_send_portals_if_ready();
+    }
+    if (snake_current_state == SNAKE_STATE_PORTB)
+    {
+        if (!snake_coord_valid(x, y))
+            return DECODER_ERR_OUT_OF_RANGE;
+        snake_portal_bx = (unsigned char)x;
+        snake_portal_by = (unsigned char)y;
+        snake_portal_b_valid = 1;
+        return snake_send_portals_if_ready();
+    }
+
+    return DECODER_NO_COMMAND;
+}
+
+static int draw_color_from_row(const char *row, int *out_color)
+{
     /*
-       Rows are fixed-width and commands often split like this:
-           SNAKEAPP + LEX1Y1...
-           SNAKEWAL + LX5Y1...
-           SNAKEPOR + TALAX8Y3...
-
-       If that row appears again while the command is already active, the
-       repeated tail can be appended after completed coordinates:
-           ...X1Y3LEX1Y1...
-           ...X5Y3LX5Y1...
-           ...X8Y3TALAX21Y5...
-
-       Old behavior treated the L/LE/TALA text as bad format and reset the
-       whole stream. For mixed apple + wall commands, that caused the later
-       wall/apple stream to desync.
-
-       After at least one valid XY pair, safely skip alphabetic tail fragments
-       until the next X, as long as the X is very close.
+       Draw panel now uses full 8-bit RGB332 values.
     */
-    if (completed_pair_count == 0)
-    {
-        return 0;
-    }
-
-    if (*pos >= end)
-    {
-        return 0;
-    }
-
-    if (!isalpha((unsigned char)buf[*pos]))
-    {
-        return 0;
-    }
-
-    if ((end - *pos) >= 5 && strncmp(&buf[*pos], "SNAKE", 5) == 0)
-    {
-        return 0;
-    }
-
-    limit = *pos + 5;
-    if (limit > end)
-    {
-        limit = end;
-    }
-
-    for (p = *pos; p < limit; p++)
-    {
-        if (buf[p] == 'X')
-        {
-            *pos = p;
-            return 1;
-        }
-
-        if (!isalpha((unsigned char)buf[p]))
-        {
-            break;
-        }
-    }
-
+    if (strcmp(row, "BLACK") == 0 || strcmp(row, "BLK") == 0) { *out_color = 0x00; return 1; }
+    if (strcmp(row, "BLUE") == 0 || strcmp(row, "BLU") == 0) { *out_color = 0x03; return 1; }
+    if (strcmp(row, "GREEN") == 0 || strcmp(row, "GRN") == 0) { *out_color = 0x1C; return 1; }
+    if (strcmp(row, "CYAN") == 0) { *out_color = 0x1F; return 1; }
+    if (strcmp(row, "RED") == 0) { *out_color = 0xE0; return 1; }
+    if (strcmp(row, "PURPLE") == 0 || strcmp(row, "MAGENT") == 0 || strcmp(row, "PINK") == 0) { *out_color = 0xE3; return 1; }
+    if (strcmp(row, "YELLOW") == 0 || strcmp(row, "YELL") == 0) { *out_color = 0xFC; return 1; }
+    if (strcmp(row, "WHITE") == 0 || strcmp(row, "WHT") == 0) { *out_color = 0xFF; return 1; }
     return 0;
 }
 
-static int parse_xy_pairs_range(
-    const char *buf,
-    unsigned int start,
-    unsigned int end,
-    unsigned char *payload,
-    unsigned int max_payload_len,
-    unsigned int *out_count,
-    unsigned int *out_payload_len
-)
+static void draw_publish_grid_if_dirty(void)
 {
-    unsigned int pos = start;
-    unsigned int count = 0;
-    unsigned int payload_len = 0;
+    if (!draw_grid_dirty)
+        return;
 
-    parse_stopped_on_trailing_junk = 0;
+    draw_grid_seq++;
+    IOWR_32DIRECT(SHARED_FLAGS_BASE, DRAW_BG_SEQ, draw_grid_seq);
+    IOWR_32DIRECT(SHARED_FLAGS_BASE, DRAW_BG_READY, 1);
+    draw_grid_dirty = 0;
+}
 
-    while (pos < end)
+static void draw_grid_write_pixel(int x, int y, int color)
+{
+    unsigned int index;
+
+    if (!draw_coord_valid(x, y))
+        return;
+
+    index = (unsigned int)(y * DRAW_GRID_W + x);
+    IOWR_8DIRECT(SHARED_FLAGS_BASE, DRAW_BG_GRID + index, (uint8_t)(color & 0xFF));
+    draw_grid_dirty = 1;
+}
+
+static void draw_grid_clear_all(void)
+{
+    unsigned int i;
+
+    for (i = 0; i < (unsigned int)(DRAW_GRID_W * DRAW_GRID_H); i++)
+        IOWR_8DIRECT(SHARED_FLAGS_BASE, DRAW_BG_GRID + i, 0);
+
+    draw_grid_dirty = 1;
+
+    if (!draw_batch_mode)
+        draw_publish_grid_if_dirty();
+}
+
+static int draw_send_pixel(int x, int y, int color)
+{
+    if (!draw_coord_valid(x, y))
+        return DECODER_ERR_OUT_OF_RANGE;
+
+    draw_grid_write_pixel(x, y, color);
+
+    if (!draw_batch_mode)
+        draw_publish_grid_if_dirty();
+
+    return DECODER_OK_SENT;
+}
+
+static int decode_draw_row(const char *row)
+{
+    int x;
+    int y;
+    int color;
+
+    if (row[0] == '\0')
+        return DECODER_NO_COMMAND;
+    if (strcmp(row, "X99Y99") == 0 || strcmp(row, "X99T99") == 0)
+        return DECODER_NO_COMMAND;
+
+    if (draw_color_from_row(row, &color))
     {
-        unsigned int pair_start = pos;
-        int x;
-        int y;
+        draw_current_color = color;
+        return DECODER_OK_STATE_UPDATED;
+    }
 
-        if (buf[pos] != 'X')
+    if (strcmp(row, "CLEAR") == 0 || strcmp(row, "RESET") == 0 ||
+        strcmp(row, "CLR") == 0 || strcmp(row, "CLEARALL") == 0)
+    {
+        draw_current_color = 0x00;
+        draw_grid_clear_all();
+        return DECODER_OK_SENT;
+    }
+
+    if (strcmp(row, "ERASE") == 0 || strcmp(row, "EMPTY") == 0)
+    {
+        draw_current_color = 0x00;
+        return DECODER_OK_STATE_UPDATED;
+    }
+
+    if (!parse_xy_row(row, &x, &y))
+        return DECODER_NO_COMMAND;
+
+    return draw_send_pixel(x, y, draw_current_color);
+}
+
+static void battle_publish_grid_seq(void)
+{
+    static unsigned int seq = 0;
+
+    seq++;
+    IOWR_32DIRECT(SHARED_FLAGS_BASE, BATTLE_GRID_SEQ, seq);
+    IOWR_32DIRECT(SHARED_FLAGS_BASE, BATTLE_GRID_READY, 1);
+}
+
+static void battle_grid_write_cell(int x, int y, uint32_t value)
+{
+    unsigned int index;
+
+    if (!battle_coord_valid(x, y))
+        return;
+
+    index = (unsigned int)(y * BATTLE_GRID_W + x);
+    IOWR_32DIRECT(SHARED_FLAGS_BASE, BATTLE_GRID_BASE + index * 4, value);
+}
+
+static void battle_grid_clear_all(void)
+{
+    unsigned int i;
+
+    for (i = 0; i < (unsigned int)(BATTLE_GRID_W * BATTLE_GRID_H); i++)
+        IOWR_32DIRECT(SHARED_FLAGS_BASE, BATTLE_GRID_BASE + i * 4, 0);
+}
+
+static int battle_send_command(unsigned int cmd_type, int x, int y)
+{
+    /*
+       Battleship originally used a single ready/ack mailbox. During fast
+       Python layout streaming that can stall after several SHIP coordinates
+       if VGA is busy rendering. Use a direct 10x10 hidden-map mirror instead:
+       IMG writes the cell word, bumps BATTLE_GRID_SEQ, and VGA syncs the map
+       in its normal update loop.
+    */
+
+    if (cmd_type == BATTLE_CMD_CLEAR_ALL)
+    {
+        battle_grid_clear_all();
+        battle_publish_grid_seq();
+        return DECODER_OK_SENT;
+    }
+
+    if (!battle_coord_valid(x, y))
+        return DECODER_ERR_OUT_OF_RANGE;
+
+    if (cmd_type == BATTLE_CMD_SET_SHIP)
+    {
+        battle_grid_write_cell(x, y, 1);
+        battle_publish_grid_seq();
+        return DECODER_OK_SENT;
+    }
+
+    if (cmd_type == BATTLE_CMD_CLEAR_CELL)
+    {
+        battle_grid_write_cell(x, y, 0);
+        battle_publish_grid_seq();
+        return DECODER_OK_SENT;
+    }
+
+    return DECODER_ERR_BAD_FORMAT;
+}
+
+static int decode_battle_row(const char *row)
+{
+    int x;
+    int y;
+
+    if (row[0] == '\0')
+        return DECODER_NO_COMMAND;
+    if (strcmp(row, "X99Y99") == 0 || strcmp(row, "X99T99") == 0)
+        return DECODER_NO_COMMAND;
+
+    if (strcmp(row, "SHIP") == 0 || strcmp(row, "SHIPS") == 0)
+    {
+        battle_current_state = BATTLE_STATE_SHIP;
+        return DECODER_OK_STATE_UPDATED;
+    }
+    if (strcmp(row, "ERASE") == 0 || strcmp(row, "EMPTY") == 0 || strcmp(row, "WATER") == 0)
+    {
+        battle_current_state = BATTLE_STATE_ERASE;
+        return DECODER_OK_STATE_UPDATED;
+    }
+    if (strcmp(row, "CLEAR") == 0 || strcmp(row, "RESET") == 0 || strcmp(row, "CLR") == 0 || strcmp(row, "CLEARALL") == 0)
+    {
+        battle_current_state = BATTLE_STATE_NONE;
+        return battle_send_command(BATTLE_CMD_CLEAR_ALL, 0, 0);
+    }
+    if (strcmp(row, "DONE") == 0)
+    {
+        return DECODER_OK_STATE_UPDATED;
+    }
+
+    if (!parse_xy_row(row, &x, &y))
+        return DECODER_NO_COMMAND;
+    if (!battle_coord_valid(x, y))
+        return DECODER_ERR_OUT_OF_RANGE;
+
+    if (battle_current_state == BATTLE_STATE_SHIP)
+        return battle_send_command(BATTLE_CMD_SET_SHIP, x, y);
+    if (battle_current_state == BATTLE_STATE_ERASE)
+        return battle_send_command(BATTLE_CMD_CLEAR_CELL, x, y);
+
+    return DECODER_NO_COMMAND;
+}
+
+
+static void decoder_trim_row(char *row)
+{
+    int start = 0;
+    int end;
+    int i;
+
+    while (row[start] == ' ' || row[start] == '\t')
+        start++;
+
+    if (start > 0)
+    {
+        i = 0;
+        while (row[start] != '\0')
+            row[i++] = row[start++];
+        row[i] = '\0';
+    }
+
+    end = (int)strlen(row) - 1;
+    while (end >= 0 && (row[end] == ' ' || row[end] == '\t' ||
+                        row[end] == '\r' || row[end] == '\n'))
+    {
+        row[end] = '\0';
+        end--;
+    }
+}
+
+int decoder_decode_and_store_panel_text_batch(int panel_mode, const char *text, unsigned int len)
+{
+    char row[ROW_MAX];
+    unsigned int i;
+    unsigned int row_len = 0;
+    int result = DECODER_NO_COMMAND;
+    int last_result = DECODER_NO_COMMAND;
+    int row_count = 0;
+
+    if (text == 0 || len == 0)
+        return DECODER_NO_COMMAND;
+
+    if (panel_mode == DECODER_PANEL_DEBUG || panel_mode == GAME_MODE_DEBUG)
+        return decoder_decode_and_store_panel_text_len(panel_mode, text, len);
+
+    if (panel_mode == DECODER_PANEL_DRAW || panel_mode == GAME_MODE_DRAW)
+        draw_batch_mode = 1;
+
+    for (i = 0; i <= len; i++)
+    {
+        char c = (i < len) ? text[i] : ';';
+
+        if (c == ';' || c == '\n' || c == '\r' || c == '\0')
         {
-            if ((end - pos) >= 5 && strncmp(&buf[pos], "SNAKE", 5) == 0)
-            {
-                break;
-            }
+            row[row_len] = '\0';
+            decoder_trim_row(row);
 
-            if (skip_repeated_command_tail_before_x(buf, &pos, end, count))
+            if (row[0] != '\0')
             {
-                pair_start = pos;
-            }
-            else
-            {
-                /*
-                   If we already parsed useful coordinates, do not reset the
-                   whole decoder just because a trailing duplicated/junk row was
-                   appended after them. Return the completed pairs and wait for
-                   the next command/chunk.
-                */
-                if (count > 0)
+                result = decoder_decode_and_store_panel_text_len(panel_mode, row, (unsigned int)strlen(row));
+                last_result = result;
+                row_count++;
+
+                if (result == DECODER_ERR_MAILBOX_BUSY &&
+                    !(panel_mode == DECODER_PANEL_DRAW || panel_mode == GAME_MODE_DRAW))
                 {
-                    parse_stopped_on_trailing_junk = 1;
                     break;
                 }
-
-                return DECODER_ERR_BAD_FORMAT;
             }
-        }
 
-        if (pos >= end || buf[pos] != 'X')
-        {
-            if (count > 0)
-            {
-                parse_stopped_on_trailing_junk = 1;
+            row_len = 0;
+
+            if (c == '\0')
                 break;
-            }
-
-            return DECODER_ERR_BAD_FORMAT;
         }
-
-        pos++;
-
-        if (!parse_number_range(buf, &pos, end, &x))
+        else if (row_len < (ROW_MAX - 1))
         {
-            break;
+            row[row_len++] = c;
         }
-
-        if (pos >= end)
-        {
-            pos = pair_start;
-            break;
-        }
-
-        if (buf[pos] != 'Y')
-        {
-            /*
-               Same protection as above: bad trailing text after at least one
-               complete pair should not reset the stream.
-            */
-            if (count > 0)
-            {
-                parse_stopped_on_trailing_junk = 1;
-                break;
-            }
-
-            return DECODER_ERR_BAD_FORMAT;
-        }
-
-        pos++;
-
-        if (!parse_number_range(buf, &pos, end, &y))
-        {
-            pos = pair_start;
-            break;
-        }
-
-        if (!coord_valid(x, y))
-        {
-            return DECODER_ERR_OUT_OF_RANGE;
-        }
-
-        if (payload_len + 2 > max_payload_len)
-        {
-            break;
-        }
-
-        payload[payload_len++] = (unsigned char)x;
-        payload[payload_len++] = (unsigned char)y;
-        count++;
     }
 
-    *out_count = count;
-    *out_payload_len = payload_len;
+    if (panel_mode == DECODER_PANEL_DRAW || panel_mode == GAME_MODE_DRAW)
+    {
+        draw_batch_mode = 0;
+        draw_publish_grid_if_dirty();
 
-    return DECODER_OK_SENT;
+        if (row_count > 1 && last_result >= 0)
+            return DECODER_OK_BATCH_SENT;
+    }
+
+    return last_result;
 }
 
-/* ============================================================
-   STREAM HELPERS
-   ============================================================ */
 
-static int starts_with_at(const char *buf, unsigned int pos, const char *prefix)
+int decoder_decode_and_store_panel_text_len(int panel_mode, const char *text, unsigned int len)
 {
-    unsigned int prefix_len;
-
-    prefix_len = (unsigned int)strlen(prefix);
-
-    if (pos + prefix_len > stream_len)
-    {
-        return 0;
-    }
-
-    return strncmp(&buf[pos], prefix, prefix_len) == 0;
-}
-
-static int find_token_from(unsigned int start, const char *token)
-{
-    unsigned int i;
-    unsigned int token_len;
-
-    token_len = (unsigned int)strlen(token);
-
-    if (token_len == 0 || stream_len < token_len)
-    {
-        return -1;
-    }
-
-    for (i = start; i + token_len <= stream_len; i++)
-    {
-        if (strncmp(&stream_buf[i], token, token_len) == 0)
-        {
-            return (int)i;
-        }
-    }
-
-    return -1;
-}
-
-static int find_next_snake(unsigned int start)
-{
-    return find_token_from(start, "SNAKE");
-}
-
-static void remove_stream_prefix(unsigned int count)
-{
-    unsigned int i;
-
-    if (count == 0)
-    {
-        return;
-    }
-
-    if (count >= stream_len)
-    {
-        stream_len = 0;
-        stream_buf[0] = '\0';
-        return;
-    }
-
-    for (i = 0; i < stream_len - count; i++)
-    {
-        stream_buf[i] = stream_buf[i + count];
-    }
-
-    stream_len -= count;
-    stream_buf[stream_len] = '\0';
-}
-
-/*
-   Common OCR repairs after normalization.
-
-   Examples:
-       SAKEAPP       -> SNAKEAPP
-       NAKEWAL       -> SNAKEWAL
-       SNAKEPOR      + TALAX... still becomes SNAKEPORTALAX...
-*/
-static void repair_common_ocr_errors(void)
-{
-    unsigned int i;
-
-    i = 0;
-
-    while (i + 4 <= stream_len)
-    {
-        if (strncmp(&stream_buf[i], "SAKE", 4) == 0)
-        {
-            unsigned int j;
-
-            if (stream_len + 1 < DECODER_STREAM_MAX)
-            {
-                for (j = stream_len + 1; j > i + 1; j--)
-                {
-                    stream_buf[j] = stream_buf[j - 1];
-                }
-
-                stream_buf[i + 1] = 'N';
-                stream_len++;
-                stream_buf[stream_len] = '\0';
-
-                i += 5;
-                continue;
-            }
-        }
-
-        i++;
-    }
-}
-
-static void append_normalized_chunk(const char *text, unsigned int len)
-{
-    unsigned int i;
-
-    for (i = 0; i < len; i++)
-    {
-        unsigned char c;
-
-        c = (unsigned char)text[i];
-
-        if (c == '\0')
-        {
-            break;
-        }
-
-        /* Keep only letters and numbers. Removes spaces/newlines. */
-        if (isalnum(c))
-        {
-            if (stream_len + 1 >= DECODER_STREAM_MAX)
-            {
-                int first_snake;
-
-                first_snake = find_next_snake(0);
-
-                if (first_snake > 0)
-                {
-                    remove_stream_prefix((unsigned int)first_snake);
-                }
-                else
-                {
-                    stream_len = 0;
-                    stream_buf[0] = '\0';
-                }
-            }
-
-            if (stream_len + 1 < DECODER_STREAM_MAX)
-            {
-                stream_buf[stream_len++] = (char)toupper(c);
-                stream_buf[stream_len] = '\0';
-            }
-        }
-    }
-
-    repair_common_ocr_errors();
-}
-
-static void drop_junk_before_command(void)
-{
-    int first_snake;
-    int first_sake;
-    int first_nake;
-    int first;
-
-    first_snake = find_token_from(0, "SNAKE");
-    first_sake = find_token_from(0, "SAKE");
-    first_nake = find_token_from(0, "NAKE");
-
-    if (first_snake < 0 && first_sake < 0 && first_nake < 0)
-    {
-        /* Keep a small suffix in case next chunk completes SNAKE. */
-        if (stream_len > 8)
-        {
-            remove_stream_prefix(stream_len - 8);
-        }
-        return;
-    }
-
-    first = -1;
-
-    if (first_snake >= 0)
-    {
-        first = first_snake;
-    }
-
-    if (first_sake >= 0 && (first < 0 || first_sake < first))
-    {
-        first = first_sake;
-    }
-
-    if (first_nake >= 0 && (first < 0 || first_nake < first))
-    {
-        first = first_nake;
-    }
-
-    if (first > 0)
-    {
-        remove_stream_prefix((unsigned int)first);
-    }
-
-    repair_common_ocr_errors();
-
-    /* If OCR missed the initial S in NAKExxx, repair it after junk trim. */
-    if (stream_len >= 4 && strncmp(stream_buf, "NAKE", 4) == 0)
-    {
-        unsigned int j;
-
-        if (stream_len + 1 < DECODER_STREAM_MAX)
-        {
-            for (j = stream_len + 1; j > 0; j--)
-            {
-                stream_buf[j] = stream_buf[j - 1];
-            }
-
-            stream_buf[0] = 'S';
-            stream_len++;
-            stream_buf[stream_len] = '\0';
-        }
-    }
-}
-
-/* ============================================================
-   COMMAND SEND HELPERS
-   ============================================================ */
-
-static int send_apples_from_segment(unsigned int data_start, unsigned int data_end)
-{
-    unsigned char payload[SNAKE_MB_PAYLOAD_MAX];
-    unsigned int count;
-    unsigned int payload_len;
+    char row[ROW_MAX];
     int result;
 
-    result = parse_xy_pairs_range(
-        stream_buf,
-        data_start,
-        data_end,
-        payload,
-        sizeof(payload),
-        &count,
-        &payload_len
-    );
+    if (text == 0 || len == 0)
+        return DECODER_NO_COMMAND;
 
-    if (result < 0)
+    normalize_row(text, len, row, sizeof(row));
+
+    if (panel_mode == DECODER_PANEL_DEBUG || panel_mode == GAME_MODE_DEBUG)
+        return DECODER_NO_COMMAND;
+
+    if (panel_mode == DECODER_PANEL_SNAKE || panel_mode == GAME_MODE_SNAKE)
     {
+        result = decode_snake_row(row);
+        if (row[0] != '\0')
+            decoder_publish_realtime_activity(GAME_MODE_SNAKE, result);
         return result;
     }
 
-    if (count == 0 || payload_len == 0)
+    if (panel_mode == DECODER_PANEL_DRAW || panel_mode == GAME_MODE_DRAW)
     {
-        return DECODER_NO_COMMAND;
-    }
-
-    /*
-       MULTI-APPLE UPDATE:
-       Send all completed apple coordinates currently available in the stream.
-
-       This makes apple behave like walls: as more X/Y chunks arrive, the
-       decoder can re-send the apple mailbox command with a larger COUNT and
-       payload.
-
-       IMPORTANT:
-       snake.c / VGA must support COUNT > 1 for SNAKE_CMD_SET_APPLE to display
-       multiple apples at once. If snake.c still supports only one apple, it
-       will likely use only one coordinate even though the decoder now sends
-       all apples.
-    */
-    if (count == 1)
-    {
-        return snake_send_mailbox_command(
-            SNAKE_CMD_ADD_APPLES,
-            count,
-            payload_len,
-            payload
-        );
-    }
-
-    return snake_send_mailbox_command(
-        SNAKE_CMD_SET_APPLE,
-        count,
-        payload_len,
-        payload
-    );
-}
-
-static int send_walls_from_segment(unsigned int data_start, unsigned int data_end)
-{
-    unsigned char payload[SNAKE_MB_PAYLOAD_MAX];
-    unsigned int count;
-    unsigned int payload_len;
-    int result;
-
-    result = parse_xy_pairs_range(
-        stream_buf,
-        data_start,
-        data_end,
-        payload,
-        sizeof(payload),
-        &count,
-        &payload_len
-    );
-
-    if (result < 0)
-    {
+        result = decode_draw_row(row);
+        if (row[0] != '\0')
+            decoder_publish_realtime_activity(GAME_MODE_DRAW, result);
         return result;
     }
 
-    if (count == 0 || payload_len == 0)
+    if (panel_mode == DECODER_PANEL_BATTLE || panel_mode == GAME_MODE_BATTLE)
     {
-        return DECODER_NO_COMMAND;
-    }
-
-    if (count == 1)
-    {
-        return snake_send_mailbox_command(
-            SNAKE_CMD_ADD_WALLS,
-            count,
-            payload_len,
-            payload
-        );
-    }
-
-    return snake_send_mailbox_command(
-        SNAKE_CMD_SET_WALLS,
-        count,
-        payload_len,
-        payload
-    );
-}
-
-static int send_add_walls_from_segment(unsigned int data_start, unsigned int data_end)
-{
-    unsigned char payload[SNAKE_MB_PAYLOAD_MAX];
-    unsigned int count;
-    unsigned int payload_len;
-    int result;
-
-    result = parse_xy_pairs_range(
-        stream_buf,
-        data_start,
-        data_end,
-        payload,
-        sizeof(payload),
-        &count,
-        &payload_len
-    );
-
-    if (result < 0)
-    {
+        result = decode_battle_row(row);
+        if (row[0] != '\0')
+            decoder_publish_realtime_activity(GAME_MODE_BATTLE, result);
         return result;
     }
 
-    if (count == 0 || payload_len == 0)
-    {
+    return DECODER_ERR_BAD_PANEL;
+}
+
+int decoder_decode_and_store_panel_text(int panel_mode, const char *text)
+{
+    if (text == 0)
         return DECODER_NO_COMMAND;
-    }
 
-    return snake_send_mailbox_command(
-        SNAKE_CMD_ADD_WALLS,
-        count,
-        payload_len,
-        payload
-    );
+    return decoder_decode_and_store_panel_text_batch(panel_mode, text, (unsigned int)strlen(text));
 }
-
-static int send_portals_if_ready(void)
-{
-    if (portal_a_valid && portal_b_valid)
-    {
-        unsigned char portal_payload[4];
-
-        portal_payload[0] = portal_ax;
-        portal_payload[1] = portal_ay;
-        portal_payload[2] = portal_bx;
-        portal_payload[3] = portal_by;
-
-        return snake_send_mailbox_command(
-            SNAKE_CMD_SET_PORTALS,
-            2,
-            4,
-            portal_payload
-        );
-    }
-
-    return DECODER_OK_WAITING_PORTAL;
-}
-
-static int send_portal_a_from_segment(unsigned int data_start, unsigned int data_end)
-{
-    unsigned char payload[4];
-    unsigned int count;
-    unsigned int payload_len;
-    int result;
-
-    result = parse_xy_pairs_range(
-        stream_buf,
-        data_start,
-        data_end,
-        payload,
-        sizeof(payload),
-        &count,
-        &payload_len
-    );
-
-    if (result < 0)
-    {
-        return result;
-    }
-
-    if (count < 1 || payload_len < 2)
-    {
-        return DECODER_NO_COMMAND;
-    }
-
-    portal_ax = payload[0];
-    portal_ay = payload[1];
-    portal_a_valid = 1;
-
-    /*
-       NEW PORTAL FIX:
-       Support compact form:
-           SNAKEPORTALAX8Y3X21Y5
-       The first pair is portal A and the second pair is portal B.
-    */
-    if (count >= 2 && payload_len >= 4)
-    {
-        portal_bx = payload[2];
-        portal_by = payload[3];
-        portal_b_valid = 1;
-    }
-
-    return send_portals_if_ready();
-}
-
-static int send_portal_b_from_segment(unsigned int data_start, unsigned int data_end)
-{
-    unsigned char payload[4];
-    unsigned int count;
-    unsigned int payload_len;
-    int result;
-
-    result = parse_xy_pairs_range(
-        stream_buf,
-        data_start,
-        data_end,
-        payload,
-        sizeof(payload),
-        &count,
-        &payload_len
-    );
-
-    if (result < 0)
-    {
-        return result;
-    }
-
-    if (count < 1 || payload_len < 2)
-    {
-        return DECODER_NO_COMMAND;
-    }
-
-    portal_bx = payload[0];
-    portal_by = payload[1];
-    portal_b_valid = 1;
-
-    /*
-       Optional compact reverse form:
-           SNAKEPORTALBX21Y5X8Y3
-       The first pair is B and the second pair is A.
-    */
-    if (count >= 2 && payload_len >= 4)
-    {
-        portal_ax = payload[2];
-        portal_ay = payload[3];
-        portal_a_valid = 1;
-    }
-
-    return send_portals_if_ready();
-}
-
-static int send_portal_auto_from_segment(unsigned int data_start, unsigned int data_end)
-{
-    unsigned char payload[4];
-    unsigned int count;
-    unsigned int payload_len;
-    int result;
-
-    result = parse_xy_pairs_range(
-        stream_buf,
-        data_start,
-        data_end,
-        payload,
-        sizeof(payload),
-        &count,
-        &payload_len
-    );
-
-    if (result < 0)
-    {
-        return result;
-    }
-
-    if (count < 1 || payload_len < 2)
-    {
-        return DECODER_NO_COMMAND;
-    }
-
-    /*
-       Support plain form:
-           SNAKEPORTALX8Y3X21Y5
-       First coordinate becomes A, second coordinate becomes B.
-    */
-    portal_ax = payload[0];
-    portal_ay = payload[1];
-    portal_a_valid = 1;
-
-    if (count >= 2 && payload_len >= 4)
-    {
-        portal_bx = payload[2];
-        portal_by = payload[3];
-        portal_b_valid = 1;
-    }
-
-    return send_portals_if_ready();
-}
-
-static int send_clear_arena(void)
-{
-    return snake_send_mailbox_command(
-        SNAKE_CMD_CLEAR_ARENA,
-        0,
-        0,
-        0
-    );
-}
-
-static int send_clear_walls(void)
-{
-    return snake_send_mailbox_command(
-        SNAKE_CMD_CLEAR_WALLS,
-        0,
-        0,
-        0
-    );
-}
-
-
-/* ============================================================
-   DIRECT PORTAL ROW HANDLER
-
-   The scrolling display often sends portal like this:
-
-       snakepor
-       talax5y3
-       snakepor
-       talbx5y6
-
-   Repeated SNAKEPOR rows are normal and must not reset portal A/B state.
-   The stream parser can get confused if repeated SNAKEPOR is appended after
-   TALAX..., so portal rows are handled directly before the generic stream
-   buffer sees them.
-   ============================================================ */
-
-static unsigned int normalize_text_to_alnum_upper(
-    const char *text,
-    unsigned int len,
-    char *out,
-    unsigned int out_max
-)
-{
-    unsigned int i;
-    unsigned int out_len;
-
-    out_len = 0;
-
-    if (out_max == 0)
-    {
-        return 0;
-    }
-
-    for (i = 0; i < len; i++)
-    {
-        unsigned char c;
-
-        c = (unsigned char)text[i];
-
-        if (c == '\0')
-        {
-            break;
-        }
-
-        if (isalnum(c))
-        {
-            if (out_len + 1 < out_max)
-            {
-                out[out_len++] = (char)toupper(c);
-            }
-        }
-    }
-
-    out[out_len] = '\0';
-    return out_len;
-}
-
-static int local_find_token(const char *buf, unsigned int len, const char *token)
-{
-    unsigned int i;
-    unsigned int token_len;
-
-    token_len = (unsigned int)strlen(token);
-
-    if (token_len == 0 || len < token_len)
-    {
-        return -1;
-    }
-
-    for (i = 0; i + token_len <= len; i++)
-    {
-        if (strncmp(&buf[i], token, token_len) == 0)
-        {
-            return (int)i;
-        }
-    }
-
-    return -1;
-}
-
-static int parse_xy_pairs_local(
-    const char *buf,
-    unsigned int start,
-    unsigned int len,
-    unsigned char *payload,
-    unsigned int max_payload_len,
-    unsigned int *out_count,
-    unsigned int *out_payload_len
-)
-{
-    unsigned int pos;
-    unsigned int count;
-    unsigned int payload_len;
-
-    pos = start;
-    count = 0;
-    payload_len = 0;
-
-    while (pos < len)
-    {
-        int x;
-        int y;
-
-        if (buf[pos] != 'X')
-        {
-            break;
-        }
-
-        pos++;
-
-        if (!parse_number_range(buf, &pos, len, &x))
-        {
-            break;
-        }
-
-        if (pos >= len || buf[pos] != 'Y')
-        {
-            break;
-        }
-
-        pos++;
-
-        if (!parse_number_range(buf, &pos, len, &y))
-        {
-            break;
-        }
-
-        if (!coord_valid(x, y))
-        {
-            return DECODER_ERR_OUT_OF_RANGE;
-        }
-
-        if (payload_len + 2 > max_payload_len)
-        {
-            break;
-        }
-
-        payload[payload_len++] = (unsigned char)x;
-        payload[payload_len++] = (unsigned char)y;
-        count++;
-    }
-
-    *out_count = count;
-    *out_payload_len = payload_len;
-
-    return DECODER_OK_SENT;
-}
-
-static int direct_store_portal_pairs_from(
-    const char *buf,
-    unsigned int len,
-    unsigned int data_start,
-    int first_is_b
-)
-{
-    unsigned char payload[4];
-    unsigned int count;
-    unsigned int payload_len;
-    int result;
-
-    result = parse_xy_pairs_local(
-        buf,
-        data_start,
-        len,
-        payload,
-        sizeof(payload),
-        &count,
-        &payload_len
-    );
-
-    if (result < 0)
-    {
-        return result;
-    }
-
-    if (count < 1 || payload_len < 2)
-    {
-        return DECODER_NO_COMMAND;
-    }
-
-    if (first_is_b)
-    {
-        portal_bx = payload[0];
-        portal_by = payload[1];
-        portal_b_valid = 1;
-
-        if (count >= 2 && payload_len >= 4)
-        {
-            portal_ax = payload[2];
-            portal_ay = payload[3];
-            portal_a_valid = 1;
-        }
-    }
-    else
-    {
-        portal_ax = payload[0];
-        portal_ay = payload[1];
-        portal_a_valid = 1;
-
-        if (count >= 2 && payload_len >= 4)
-        {
-            portal_bx = payload[2];
-            portal_by = payload[3];
-            portal_b_valid = 1;
-        }
-    }
-
-    return send_portals_if_ready();
-}
-
-static int handle_portal_row_direct(
-    const char *text,
-    unsigned int len,
-    int *out_consumed
-)
-{
-    char n[96];
-    unsigned int n_len;
-    int p;
-
-    *out_consumed = 0;
-
-    n_len = normalize_text_to_alnum_upper(text, len, n, sizeof(n));
-
-    if (n_len == 0)
-    {
-        return DECODER_NO_COMMAND;
-    }
-
-    /*
-       Header row only. It is allowed to repeat and should not clear portal A/B.
-       Consume it so the generic stream buffer does not become:
-           SNAKEPORTALAX5Y3SNAKEPOR...
-    */
-    if (local_find_token(n, n_len, "SNAKEPOR") >= 0)
-    {
-        *out_consumed = 1;
-
-        /*
-           If the same row also contains coordinates, handle those below first.
-           Header-only rows return no command.
-        */
-    }
-
-    /*
-       A forms accepted:
-           TALAX5Y3
-           PORTALAX5Y3
-           SNAKEPORTALAX5Y3
-           AX5Y3
-           SNAKEPORTALAX5Y3X21Y5
-    */
-    p = local_find_token(n, n_len, "PORTALA");
-    if (p >= 0)
-    {
-        int result;
-
-        *out_consumed = 1;
-        result = direct_store_portal_pairs_from(n, n_len, (unsigned int)p + 7, 0);
-
-        if (result != DECODER_NO_COMMAND)
-        {
-            return result;
-        }
-    }
-
-    p = local_find_token(n, n_len, "TALA");
-    if (p >= 0)
-    {
-        int result;
-
-        *out_consumed = 1;
-        result = direct_store_portal_pairs_from(n, n_len, (unsigned int)p + 4, 0);
-
-        if (result != DECODER_NO_COMMAND)
-        {
-            return result;
-        }
-    }
-
-    p = local_find_token(n, n_len, "AX");
-    if (p >= 0)
-    {
-        int result;
-
-        *out_consumed = 1;
-        result = direct_store_portal_pairs_from(n, n_len, (unsigned int)p + 1, 0);
-
-        if (result != DECODER_NO_COMMAND)
-        {
-            return result;
-        }
-    }
-
-    /*
-       B forms accepted:
-           TALBX5Y6
-           PORTALBX5Y6
-           SNAKEPORTALBX5Y6
-           BX5Y6
-           SNAKEPORTALBX5Y6X5Y3
-    */
-    p = local_find_token(n, n_len, "PORTALB");
-    if (p >= 0)
-    {
-        int result;
-
-        *out_consumed = 1;
-        result = direct_store_portal_pairs_from(n, n_len, (unsigned int)p + 7, 1);
-
-        if (result != DECODER_NO_COMMAND)
-        {
-            return result;
-        }
-    }
-
-    p = local_find_token(n, n_len, "TALB");
-    if (p >= 0)
-    {
-        int result;
-
-        *out_consumed = 1;
-        result = direct_store_portal_pairs_from(n, n_len, (unsigned int)p + 4, 1);
-
-        if (result != DECODER_NO_COMMAND)
-        {
-            return result;
-        }
-    }
-
-    p = local_find_token(n, n_len, "BX");
-    if (p >= 0)
-    {
-        int result;
-
-        *out_consumed = 1;
-        result = direct_store_portal_pairs_from(n, n_len, (unsigned int)p + 1, 1);
-
-        if (result != DECODER_NO_COMMAND)
-        {
-            return result;
-        }
-    }
-
-    if (*out_consumed)
-    {
-        return DECODER_NO_COMMAND;
-    }
-
-    return DECODER_NO_COMMAND;
-}
-
-
-/* ============================================================
-   STREAM PROCESSOR
-   ============================================================ */
-
-static int process_stream(void)
-{
-    int any_sent;
-    int last_result;
-
-    any_sent = 0;
-    last_result = DECODER_NO_COMMAND;
-
-    while (stream_len > 0)
-    {
-        int next_snake;
-        unsigned int cmd_end;
-        unsigned int remove_after_send;
-        int result;
-
-        drop_junk_before_command();
-
-        if (stream_len < 5)
-        {
-            break;
-        }
-
-        if (strncmp(stream_buf, "SNAKE", 5) != 0)
-        {
-            break;
-        }
-
-        next_snake = find_next_snake(5);
-
-        if (next_snake > 0)
-        {
-            cmd_end = (unsigned int)next_snake;
-        }
-        else
-        {
-            cmd_end = stream_len;
-        }
-
-        result = DECODER_NO_COMMAND;
-        remove_after_send = 0;
-
-        if (starts_with_at(stream_buf, 0, "SNAKEAPPLE"))
-        {
-            /*
-               Apple integration disabled in this build.
-               Keep this parser from blocking later WALL/PORTAL commands.
-            */
-            result = DECODER_NO_COMMAND;
-
-            if (next_snake > 0)
-            {
-                remove_after_send = cmd_end;
-            }
-            else if (stream_len > (unsigned int)strlen("SNAKEAPPLE") + 24)
-            {
-                remove_after_send = stream_len;
-            }
-        }
-        else if (starts_with_at(stream_buf, 0, "SNAKEADDWALL"))
-        {
-            result = send_add_walls_from_segment(
-                (unsigned int)strlen("SNAKEADDWALL"),
-                cmd_end
-            );
-
-            if ((next_snake > 0 || parse_stopped_on_trailing_junk) && result >= 0)
-            {
-                remove_after_send = cmd_end;
-            }
-        }
-        else if (starts_with_at(stream_buf, 0, "SNAKEWALL"))
-        {
-            result = send_walls_from_segment(
-                (unsigned int)strlen("SNAKEWALL"),
-                cmd_end
-            );
-
-            /*
-               If another SNAKE command has started, remove this command.
-               If no next SNAKE yet, keep it so later chunks can extend it.
-            */
-            if ((next_snake > 0 || parse_stopped_on_trailing_junk) && result >= 0)
-            {
-                remove_after_send = cmd_end;
-            }
-        }
-        else if (starts_with_at(stream_buf, 0, "SNAKEPORTALA"))
-        {
-            result = send_portal_a_from_segment(
-                (unsigned int)strlen("SNAKEPORTALA"),
-                cmd_end
-            );
-
-            /*
-               Remove only when both portals are sent, or when another command has
-               started. If only A is complete and no next SNAKE, keep the command
-               in stream so compact second pair can arrive in the next chunk:
-                   snakepor / talax8y3 / x21y5
-            */
-            if (result == DECODER_OK_SENT)
-            {
-                remove_after_send = cmd_end;
-            }
-            else if (result == DECODER_OK_WAITING_PORTAL && next_snake > 0)
-            {
-                remove_after_send = cmd_end;
-            }
-        }
-        else if (starts_with_at(stream_buf, 0, "SNAKEPORTALB"))
-        {
-            result = send_portal_b_from_segment(
-                (unsigned int)strlen("SNAKEPORTALB"),
-                cmd_end
-            );
-
-            if (result == DECODER_OK_SENT)
-            {
-                remove_after_send = cmd_end;
-            }
-            else if (result == DECODER_OK_WAITING_PORTAL && next_snake > 0)
-            {
-                remove_after_send = cmd_end;
-            }
-        }
-        else if (starts_with_at(stream_buf, 0, "SNAKEPORTAL"))
-        {
-            result = send_portal_auto_from_segment(
-                (unsigned int)strlen("SNAKEPORTAL"),
-                cmd_end
-            );
-
-            if (result == DECODER_OK_SENT)
-            {
-                remove_after_send = cmd_end;
-            }
-            else if (result == DECODER_OK_WAITING_PORTAL && next_snake > 0)
-            {
-                remove_after_send = cmd_end;
-            }
-        }
-        else if (starts_with_at(stream_buf, 0, "SNAKECLEARARENA"))
-        {
-            result = send_clear_arena();
-
-            if (result == DECODER_OK_SENT)
-            {
-                remove_after_send = (unsigned int)strlen("SNAKECLEARARENA");
-            }
-        }
-        else if (starts_with_at(stream_buf, 0, "SNAKECLEARWALLS"))
-        {
-            result = send_clear_walls();
-
-            if (result == DECODER_OK_SENT)
-            {
-                remove_after_send = (unsigned int)strlen("SNAKECLEARWALLS");
-            }
-        }
-        else if (starts_with_at(stream_buf, 0, "SNAKEEMPTY"))
-        {
-            remove_after_send = (unsigned int)strlen("SNAKEEMPTY");
-            result = DECODER_NO_COMMAND;
-        }
-        else
-        {
-            /*
-               Not enough chars yet. Examples:
-                   SNAKEWAL
-                   SNAKEAPP
-                   SNAKEPOR
-            */
-            break;
-        }
-
-        if (result < 0)
-        {
-            return result;
-        }
-
-        if (result == DECODER_OK_SENT || result == DECODER_OK_WAITING_PORTAL)
-        {
-            any_sent = 1;
-            last_result = result;
-        }
-
-        if (remove_after_send > 0)
-        {
-            remove_stream_prefix(remove_after_send);
-            continue;
-        }
-
-        /* No removal means wait for more chunks. */
-        break;
-    }
-
-    if (any_sent)
-    {
-        return last_result;
-    }
-
-    return DECODER_NO_COMMAND;
-}
-
-/* ============================================================
-   PUBLIC API
-   ============================================================ */
 
 int decoder_decode_and_store_snake_command_len(const char *text, unsigned int len)
 {
-    int consumed;
-    int direct_result;
-
-    if (text == 0 || len == 0)
-    {
-        return DECODER_NO_COMMAND;
-    }
-
-    /*
-       Portal rows are handled directly because SNAKEPOR can repeat many times.
-       Repeated header rows must not poison the generic stream buffer.
-    */
-    consumed = 0;
-    direct_result = handle_portal_row_direct(text, len, &consumed);
-
-    if (consumed)
-    {
-        return direct_result;
-    }
-
-    append_normalized_chunk(text, len);
-
-    return process_stream();
+    return decoder_decode_and_store_panel_text_len(GAME_MODE_SNAKE, text, len);
 }
 
 int decoder_decode_and_store_snake_command(const char *text)
 {
-    if (text == 0)
-    {
-        return DECODER_NO_COMMAND;
-    }
-
-    return decoder_decode_and_store_snake_command_len(
-        text,
-        (unsigned int)strlen(text)
-    );
+    return decoder_decode_and_store_panel_text(GAME_MODE_SNAKE, text);
 }

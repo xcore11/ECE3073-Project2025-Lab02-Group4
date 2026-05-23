@@ -25,6 +25,12 @@ ESP32DMASPI::Slave slave;
 #define SPI_CMD_READ_LENGTH     0xA1
 #define SPI_CMD_READ_PACKET     0xA2
 #define SPI_CMD_ABORT_PACKET    0xA3
+#define SPI_CMD_PANEL_DEBUG     0xD0
+#define SPI_CMD_PANEL_SNAKE     0xD1
+#define SPI_CMD_PANEL_DRAW      0xD2
+#define SPI_CMD_PANEL_MENU      0xD3
+#define SPI_CMD_DEBUG_CAPTURE_IMAGE 0xD4
+#define SPI_CMD_PANEL_BATTLE    0xD5
 
 #define SPI_COMMAND_BYTES       4
 #define SPI_LENGTH_BYTES        8
@@ -86,11 +92,32 @@ volatile bool packetReadyForSpi = false;
 #define SPI_PACKET_QUEUE_DEPTH   8
 
 /*
+   DRAW micro-batching.
+
+   Still realtime:
+     - flush on state/color change
+     - flush after 12 coords
+     - flush after 18 ms
+     - flush on invoke-fail/end-pass
+
+   Logical packet text payload:
+       green;x33y44;x33y43;x33y42
+*/
+#define DRAW_MICROBATCH_MAX_COORDS      12
+#define DRAW_MICROBATCH_MAX_AGE_MS      18
+#define SPI_QUEUE_HIGH_WATERMARK        (SPI_PACKET_QUEUE_DEPTH - 2)
+
+/*
    Gap between consecutive queued packets.
    DATA_READY must go LOW long enough for FPGA to see packet boundary before
    the next queued packet is presented.
 */
-#define SPI_NEXT_PACKET_GAP_MS 5
+/*
+   Keep DATA_READY low long enough between queued realtime row packets.
+   5 ms was sometimes too short: FPGA could read a valid length but clock
+   all-zero packet bytes, dropping wall coordinates.
+*/
+#define SPI_NEXT_PACKET_GAP_MS 20
 
 struct SpiQueuedPacket {
     uint32_t len;
@@ -104,6 +131,11 @@ volatile int spiPacketQueueCount = 0;
 
 portMUX_TYPE spiPacketMux = portMUX_INITIALIZER_UNLOCKED;
 uint8_t packetBuildScratch[PACKET_MAX_LEN] = {0};
+
+String drawMicroBatchState = "";
+String drawMicroBatchRows = "";
+int drawMicroBatchCoordCount = 0;
+unsigned long drawMicroBatchFirstMs = 0;
 
 static void setFpgaDataReady(bool ready)
 {
@@ -127,6 +159,11 @@ volatile bool captureActive = false;
 */
 volatile bool sessionStarted = false;
 
+/* IMG sends 0xD4 when user presses KEY0 in the debug panel.
+   Main loop consumes this flag and captures one image packet. */
+volatile bool debugImageCaptureRequested = false;
+
+
 /* =========================
    RTOS SPI trigger flags
    ========================= */
@@ -146,6 +183,43 @@ volatile uint32_t spiIgnoredCounter = 0;
 
 #define MAX_BOXES 80
 #define MAX_CHARS_PER_LINE 8
+/* =========================
+   Panel mode from IMG/VGA
+
+   IMG sends one of these SPI commands whenever VGA enters a panel:
+       0xD0 debug: old debug/text/image behavior, START321 calibration, 8 slots
+       0xD1 snake: new realtime protocol, X99Y99 calibration, 6 slots
+       0xD2 draw : new realtime protocol, X99Y99 calibration, 6 slots
+       0xD3 menu : scanning idle / no active panel
+   ========================= */
+
+#define ESP_PANEL_MENU   0
+#define ESP_PANEL_SNAKE  1
+#define ESP_PANEL_DRAW   2
+#define ESP_PANEL_DEBUG  3
+#define ESP_PANEL_BATTLE 4
+
+volatile int currentPanelMode = ESP_PANEL_DEBUG;
+
+bool isRealtimePanelMode()
+{
+    return (currentPanelMode == ESP_PANEL_SNAKE || currentPanelMode == ESP_PANEL_DRAW || currentPanelMode == ESP_PANEL_BATTLE);
+}
+
+int activeSlotCount()
+{
+    return isRealtimePanelMode() ? 6 : MAX_CHARS_PER_LINE;
+}
+
+const char *panelModeName(int mode)
+{
+    if (mode == ESP_PANEL_SNAKE) return "SNAKE";
+    if (mode == ESP_PANEL_DRAW) return "DRAW";
+    if (mode == ESP_PANEL_DEBUG) return "DEBUG";
+    if (mode == ESP_PANEL_BATTLE) return "BATTLE";
+    return "MENU";
+}
+
 
 /*
    Calibration line:
@@ -339,9 +413,396 @@ bool buildFinalPacket();
 bool queuePacketBytesForSpi(const uint8_t *data, uint32_t len);
 bool promoteQueuedPacketIfIdle();
 void clearSpiPacketQueue();
+String normalizeRowForCompare(String text);
+String cleanSlottedText(String s);
+void resetDrawMicroBatch();
+bool flushDrawMicroBatch(bool force, const char *reason);
+bool queueTextPacketForSpi(const String &packetText, const char *reason);
+
+/*
+   These globals are defined later with the row tracker state. The micro-batch
+   helpers are intentionally placed earlier, so C++ needs forward declarations.
+*/
+extern String lastRealtimeStateRowText;
+extern unsigned long lastRealtimeStateRowMs;
+
+
+
+bool isCoordProtocolRow(String n)
+{
+    if (n.length() < 6) {
+        return false;
+    }
+
+    if (n[0] != 'x') {
+        return false;
+    }
+
+    if (!(n[1] >= '0' && n[1] <= '9')) return false;
+    if (!(n[2] >= '0' && n[2] <= '9')) return false;
+    if (!(n[3] == 'y' || n[3] == 't')) return false;
+    if (!(n[4] >= '0' && n[4] <= '9')) return false;
+    if (!(n[5] >= '0' && n[5] <= '9')) return false;
+
+    return true;
+}
+
+bool isRealtimeProtocolRowText(const String &text)
+{
+    String n = normalizeRowForCompare(text);
+
+    if (n.length() == 0) {
+        return false;
+    }
+
+    if (n == "x99y99" || n == "x99t99") {
+        return false;
+    }
+
+    if (isCoordProtocolRow(n)) {
+        return true;
+    }
+
+    if (currentPanelMode == ESP_PANEL_SNAKE) {
+        return (n == "wall" || n == "walls" ||
+                n == "apple" || n == "apples" ||
+                n == "porta" || n == "portb" ||
+                n == "clear" || n == "reset" ||
+                n == "clr" || n == "clearall" ||
+                n == "clrwal" || n == "nowall" ||
+                n == "erase" || n == "empty");
+    }
+
+    if (currentPanelMode == ESP_PANEL_DRAW) {
+        return (n == "red" || n == "green" || n == "blue" ||
+                n == "cyan" || n == "yellow" || n == "black" ||
+                n == "white" || n == "purple" || n == "pink" ||
+                n == "blk" || n == "blu" || n == "grn" ||
+                n == "wht" || n == "clear" || n == "reset" ||
+                n == "erase" || n == "empty");
+    }
+
+    if (currentPanelMode == ESP_PANEL_BATTLE) {
+        return (n == "ship" || n == "ships" ||
+                n == "clear" || n == "reset" || n == "clr" || n == "clearall" ||
+                n == "erase" || n == "empty" || n == "water" ||
+                n == "done");
+    }
+
+    return false;
+}
+
+
+bool isRealtimeStateCommandRowText(const String &text)
+{
+    String n = normalizeRowForCompare(text);
+
+    if (n.length() == 0) {
+        return false;
+    }
+
+    if (isCoordProtocolRow(n)) {
+        return false;
+    }
+
+    if (n == "x99y99" || n == "x99t99") {
+        return false;
+    }
+
+    if (currentPanelMode == ESP_PANEL_SNAKE) {
+        return (n == "wall" || n == "walls" ||
+                n == "apple" || n == "apples" ||
+                n == "porta" || n == "portb" ||
+                n == "clear" || n == "reset" ||
+                n == "clr" || n == "clearall" ||
+                n == "clrwal" || n == "nowall" ||
+                n == "erase" || n == "empty");
+    }
+
+    if (currentPanelMode == ESP_PANEL_DRAW) {
+        return (n == "red" || n == "green" || n == "blue" ||
+                n == "cyan" || n == "yellow" || n == "black" ||
+                n == "white" || n == "purple" || n == "pink" ||
+                n == "blk" || n == "blu" || n == "grn" ||
+                n == "wht" || n == "clear" || n == "reset" ||
+                n == "erase" || n == "empty");
+    }
+
+    if (currentPanelMode == ESP_PANEL_BATTLE) {
+        return (n == "ship" || n == "ships" ||
+                n == "clear" || n == "reset" || n == "clr" || n == "clearall" ||
+                n == "erase" || n == "empty" || n == "water" ||
+                n == "done");
+    }
+
+    return false;
+}
+
+
+bool isDrawHardCommandText(const String &text)
+{
+    String n = normalizeRowForCompare(text);
+    return (n == "clear" || n == "reset" || n == "clr" || n == "clearall");
+}
+
+bool isDrawStateText(const String &text)
+{
+    String n = normalizeRowForCompare(text);
+
+    if (n.length() == 0 || isCoordProtocolRow(n)) {
+        return false;
+    }
+
+    if (!isMicroBatchPanelMode()) {
+        return false;
+    }
+
+    return isRealtimeStateCommandRowText(n);
+}
+
+bool isDrawCoordText(const String &text)
+{
+    String n = normalizeRowForCompare(text);
+    return (currentPanelMode == ESP_PANEL_DRAW && isCoordProtocolRow(n));
+}
+
+bool isMicroBatchPanelMode()
+{
+    /*
+       DRAW is high volume and benefits most.
+       BATTLE also uses a direct grid mirror on IMG/VGA side, so it can safely
+       accept semicolon coordinate batches.
+       SNAKE is intentionally NOT batched here because its current VGA side
+       still consumes ordered mailbox commands one at a time.
+    */
+    return (currentPanelMode == ESP_PANEL_DRAW ||
+            currentPanelMode == ESP_PANEL_BATTLE);
+}
+
+void resetDrawMicroBatch()
+{
+    drawMicroBatchState = "";
+    drawMicroBatchRows = "";
+    drawMicroBatchCoordCount = 0;
+    drawMicroBatchFirstMs = 0;
+}
+
+bool queueTextPacketForSpi(const String &packetText, const char *reason)
+{
+    String sendText = packetText;
+    sendText.trim();
+
+    if (sendText.length() == 0) {
+        return true;
+    }
+
+    if (sendText.length() > PACKET_MAX_TEXT_LEN) {
+        sendText = sendText.substring(0, PACKET_MAX_TEXT_LEN);
+    }
+
+    latestPassageText = sendText;
+    passageReadyForSpi = true;
+    latestGrayImageValid = false;
+    memset(latestGrayImage, 0, sizeof(latestGrayImage));
+
+    Serial.print("[SPI TEXT] ");
+    Serial.print(reason ? reason : "queue");
+    Serial.print(" panel=");
+    Serial.print(panelModeName(currentPanelMode));
+    Serial.print(" text=[");
+    Serial.print(sendText);
+    Serial.println("]");
+
+    if (!buildFinalPacket()) {
+        Serial.println("[SPI TEXT] queue full");
+        return false;
+    }
+
+    return true;
+}
+
+String buildDrawMicroBatchPayload()
+{
+    String payload = "";
+
+    if (drawMicroBatchState.length() > 0) {
+        payload += drawMicroBatchState;
+    }
+
+    if (drawMicroBatchRows.length() > 0) {
+        if (payload.length() > 0) {
+            payload += ";";
+        }
+        payload += drawMicroBatchRows;
+    }
+
+    return payload;
+}
+
+bool flushDrawMicroBatch(bool force, const char *reason)
+{
+    unsigned long nowMs = millis();
+
+    if (!isMicroBatchPanelMode()) {
+        resetDrawMicroBatch();
+        return true;
+    }
+
+    if (drawMicroBatchCoordCount <= 0) {
+        return true;
+    }
+
+    if (!force) {
+        if (drawMicroBatchCoordCount < DRAW_MICROBATCH_MAX_COORDS &&
+            (nowMs - drawMicroBatchFirstMs) < DRAW_MICROBATCH_MAX_AGE_MS) {
+            return true;
+        }
+    }
+
+    String payload = buildDrawMicroBatchPayload();
+
+    Serial.print("[RT BATCH] flush reason=");
+    Serial.print(reason ? reason : "age/count");
+    Serial.print(" coords=");
+    Serial.print(drawMicroBatchCoordCount);
+    Serial.print(" q=");
+    Serial.print(spiPacketQueueCount);
+    Serial.print(" payload=[");
+    Serial.print(payload);
+    Serial.println("]");
+
+    if (!queueTextPacketForSpi(payload, "rt-batch")) {
+        /* Keep the batch pending; loop() retries while SPI drains. */
+        return false;
+    }
+
+    resetDrawMicroBatch();
+    return true;
+}
+
+void appendDrawCoordToMicroBatch(const String &coordText, int rowY)
+{
+    String coord = normalizeRowForCompare(coordText);
+
+    if (!isCoordProtocolRow(coord)) {
+        return;
+    }
+
+    if (drawMicroBatchCoordCount >= DRAW_MICROBATCH_MAX_COORDS) {
+        if (!flushDrawMicroBatch(true, "full-before-append")) {
+            Serial.print("[RT BATCH] queue full, newest coord left for OCR retry/drop text=[");
+            Serial.print(coord);
+            Serial.println("]");
+            return;
+        }
+    }
+
+    if (drawMicroBatchCoordCount == 0) {
+        drawMicroBatchRows = "";
+        drawMicroBatchFirstMs = millis();
+
+        /*
+           Include the current draw state/color at the start of every batch.
+           This makes the batch robust even if an earlier standalone state
+           packet was lost by SPI timing.
+        */
+        if (isDrawStateText(lastRealtimeStateRowText) &&
+            !isDrawHardCommandText(lastRealtimeStateRowText)) {
+            drawMicroBatchState = normalizeRowForCompare(lastRealtimeStateRowText);
+        } else {
+            drawMicroBatchState = "";
+        }
+    }
+
+    if (drawMicroBatchRows.length() > 0) {
+        drawMicroBatchRows += ";";
+    }
+
+    drawMicroBatchRows += coord;
+    drawMicroBatchCoordCount++;
+
+    Serial.print("[RT BATCH] append y=");
+    Serial.print(rowY);
+    Serial.print(" state=[");
+    Serial.print(drawMicroBatchState);
+    Serial.print("] coord=[");
+    Serial.print(coord);
+    Serial.print("] count=");
+    Serial.println(drawMicroBatchCoordCount);
+
+    flushDrawMicroBatch(false, "age/count-after-append");
+}
+
+
+void sendRealtimeRowText(const String &text, int rowY, const char *reason)
+{
+    String finalRowText = cleanSlottedText(text);
+
+    if (!isRealtimeProtocolRowText(finalRowText)) {
+        return;
+    }
+
+    if (isMicroBatchPanelMode()) {
+        String n = normalizeRowForCompare(finalRowText);
+
+        if (isCoordProtocolRow(n)) {
+            appendDrawCoordToMicroBatch(n, rowY);
+            return;
+        }
+
+        if (isRealtimeStateCommandRowText(n)) {
+            /*
+               Color/state transition = immediate boundary.
+               Flush the previous color batch first, then send the new state.
+               Later coord batches also include this state as their first row.
+            */
+            flushDrawMicroBatch(true, "state-change");
+
+            if (isDrawHardCommandText(n)) {
+                resetDrawMicroBatch();
+            } else {
+                drawMicroBatchState = n;
+            }
+
+            Serial.print("[REALTIME ROW] immediate batch-state panel=");
+            Serial.print(panelModeName(currentPanelMode));
+            Serial.print(" y=");
+            Serial.print(rowY);
+            Serial.print(" text=[");
+            Serial.print(n);
+            Serial.println("]");
+
+            queueTextPacketForSpi(n, reason ? reason : "draw-state");
+            return;
+        }
+    }
+
+    Serial.print("[REALTIME ROW] ");
+    Serial.print(reason ? reason : "send");
+    Serial.print(" panel=");
+    Serial.print(panelModeName(currentPanelMode));
+    Serial.print(" y=");
+    Serial.print(rowY);
+    Serial.print(" text=[");
+    Serial.print(finalRowText);
+    Serial.println("]");
+
+    if (!queueTextPacketForSpi(finalRowText, reason ? reason : "realtime-row")) {
+        Serial.println("[REALTIME ROW] SPI packet queue full, row dropped/retry by next OCR pass");
+    }
+}
 
 bool isUsefulSnakeRowText(const String &text);
 bool isPortalDuplicateBypassRowText(const String &text);
+bool isRealtimePanelMode();
+int activeSlotCount();
+const char *panelModeName(int mode);
+void setPanelModeFromSpi(int mode);
+bool isRealtimeProtocolRowText(const String &text);
+bool isRealtimeStateCommandRowText(const String &text);
+void sendRealtimeRowText(const String &text, int rowY, const char *reason);
+void requestDebugImageCaptureFromSpi(void);
+void captureDebugImagePacketNow(void);
 
 String frozenPassageRows[MAX_PASSAGE_ROWS];
 int frozenPassageRowCount = 0;
@@ -359,6 +820,17 @@ int recentSentCount = 0;
 
 int consecutiveInvokeFails = 0;
 int frameCounter = 0;
+
+/*
+   Realtime state rows such as WALL/APPLE/RED are short and can cross the
+   camera in only one reliable AI frame. Do not require the normal row
+   tracker stability count for these rows. This guard only prevents the same
+   state row being sent repeatedly while it remains visible for a few frames.
+*/
+String lastRealtimeStateRowText = "";
+unsigned long lastRealtimeStateRowMs = 0;
+#define REALTIME_STATE_REPEAT_GUARD_MS 1200
+#define REALTIME_COORD_FREEZE_CONFIRM_COUNT 1
 
 /* =========================
    Calibration data
@@ -442,18 +914,24 @@ int countNonSpaceChars(String s)
 
 String buildExpectedCalibrationLine()
 {
+    if (isRealtimePanelMode()) {
+        return "x99y99";
+    }
+
     String prefix = START_CALIBRATION_PREFIX;
     prefix.toLowerCase();
 
-    if (MAX_CHARS_PER_LINE <= 0) {
+    int slots = activeSlotCount();
+
+    if (slots <= 0) {
         return "";
     }
 
-    if (prefix.length() >= MAX_CHARS_PER_LINE) {
-        return prefix.substring(0, MAX_CHARS_PER_LINE);
+    if (prefix.length() >= slots) {
+        return prefix.substring(0, slots);
     }
 
-    int remaining = MAX_CHARS_PER_LINE - prefix.length();
+    int remaining = slots - prefix.length();
     String suffix = "";
 
     for (int number = remaining; number >= 1; number--) {
@@ -541,6 +1019,9 @@ void resetAllMemory()
     frozenPassageRowCount = 0;
     consecutiveInvokeFails = 0;
     frameCounter = 0;
+    lastRealtimeStateRowText = "";
+    lastRealtimeStateRowMs = 0;
+    resetDrawMicroBatch();
 
     latestPassageText = "";
     passageReadyForSpi = false;
@@ -554,6 +1035,10 @@ void resetAllMemory()
     setFpgaDataReady(false);
 
     Serial.println("Memory reset");
+    Serial.print("Panel mode: ");
+    Serial.println(panelModeName(currentPanelMode));
+    Serial.print("Active slots: ");
+    Serial.println(activeSlotCount());
     Serial.print("Expected calibration line: ");
     Serial.println(buildExpectedCalibrationLine());
     Serial.println("----------------");
@@ -615,7 +1100,7 @@ int findClosestCalibratedSlot(int detectedX)
     int bestSlot = -1;
     int bestDiff = 999999;
 
-    for (int i = 0; i < MAX_CHARS_PER_LINE; i++) {
+    for (int i = 0; i < activeSlotCount(); i++) {
         int diff = abs(detectedX - calibratedX[i]);
 
         if (diff < bestDiff) {
@@ -636,7 +1121,7 @@ String buildSlottedTextFromRow(struct DetectedRow *row)
     char slotChars[MAX_CHARS_PER_LINE];
     int slotDiffs[MAX_CHARS_PER_LINE];
 
-    for (int i = 0; i < MAX_CHARS_PER_LINE; i++) {
+    for (int i = 0; i < activeSlotCount(); i++) {
         slotChars[i] = ' ';
         slotDiffs[i] = 999999;
     }
@@ -661,7 +1146,7 @@ String buildSlottedTextFromRow(struct DetectedRow *row)
 
     String result = "";
 
-    for (int i = 0; i < MAX_CHARS_PER_LINE; i++) {
+    for (int i = 0; i < activeSlotCount(); i++) {
         result += slotChars[i];
     }
 
@@ -681,12 +1166,12 @@ bool tryUseRowAsCalibration(struct DetectedRow row)
         return false;
     }
 
-    if (row.charCount < MAX_CHARS_PER_LINE) {
+    if (row.charCount < activeSlotCount()) {
         Serial.println("Calibration row text matched but not enough character boxes");
         return false;
     }
 
-    for (int i = 0; i < MAX_CHARS_PER_LINE; i++) {
+    for (int i = 0; i < activeSlotCount(); i++) {
         calibratedX[i] = row.xs[i];
     }
 
@@ -702,7 +1187,7 @@ bool tryUseRowAsCalibration(struct DetectedRow row)
     Serial.print("Calibration line: ");
     Serial.println(raw);
 
-    for (int i = 0; i < MAX_CHARS_PER_LINE; i++) {
+    for (int i = 0; i < activeSlotCount(); i++) {
         Serial.print("slot ");
         Serial.print(i);
         Serial.print(" x=");
@@ -817,7 +1302,7 @@ int extractDetectedRows(struct DetectedRow detectedRows[], int maxRowsOut)
                 row.maxX = boxes[i].x;
             }
 
-            if (row.charCount < MAX_CHARS_PER_LINE) {
+            if (row.charCount < activeSlotCount()) {
                 row.chars[row.charCount] = boxes[i].c;
                 row.xs[row.charCount] = boxes[i].x;
                 row.charCount++;
@@ -922,6 +1407,10 @@ bool isCalibrationLikeText(String text)
     }
 
     if (n == expected) {
+        return true;
+    }
+
+    if (n == "x99y99" || n == "x99t99") {
         return true;
     }
 
@@ -1346,6 +1835,10 @@ bool isUsefulSnakeRowText(const String &text)
 {
     String t = cleanSlottedText(text);
 
+    if (isRealtimePanelMode()) {
+        return isRealtimeProtocolRowText(t);
+    }
+
     /*
        Accept ANY row from 1 character up to MAX_CHARS_PER_LINE.
 
@@ -1394,6 +1887,11 @@ void queueFrozenRowForOrderedSend(int trackerIndex, String finalRowText)
 
     int rowY = rowTrackers[trackerIndex].y;
 
+    if (isRealtimePanelMode()) {
+        sendRealtimeRowText(finalRowText, rowY, "stable");
+        return;
+    }
+
     /*
        Original exact duplicate behavior:
        if the exact cleaned row text is already pending or was recently sent
@@ -1431,7 +1929,8 @@ void queueFrozenRowForOrderedSend(int trackerIndex, String finalRowText)
 
     if (pendingFrozenRowCount >= MAX_PENDING_SEND_ROWS) {
         Serial.println("[ROW ORDER] pending row buffer full, trying to flush before queueing");
-        flushPendingFrozenRows();
+        flushDrawMicroBatch(false, "loop-age");
+    flushPendingFrozenRows();
     }
 
     if (pendingFrozenRowCount >= MAX_PENDING_SEND_ROWS) {
@@ -1592,8 +2091,16 @@ void freezeRow(int trackerIndex)
     }
 
     if (frozenPassageRowCount >= MAX_PASSAGE_ROWS) {
-        Serial.println("Frozen passage row memory full");
-        return;
+        /*
+           This is only debug/history memory. It must never stop realtime.
+           Roll the oldest row out and continue.
+        */
+        for (int i = 1; i < MAX_PASSAGE_ROWS; i++) {
+            frozenPassageRows[i - 1] = frozenPassageRows[i];
+        }
+        frozenPassageRows[MAX_PASSAGE_ROWS - 1] = "";
+        frozenPassageRowCount = MAX_PASSAGE_ROWS - 1;
+        Serial.println("Frozen passage row memory full -> rolling oldest out");
     }
 
     String finalRowText = rowTrackers[trackerIndex].lastText;
@@ -1659,6 +2166,25 @@ void updateRowTrackerWithDetectedRow(struct DetectedRow detected)
         return;
     }
 
+    if (isRealtimePanelMode() && isRealtimeStateCommandRowText(text)) {
+        unsigned long nowMs = millis();
+
+        if (lastRealtimeStateRowText == text &&
+            (nowMs - lastRealtimeStateRowMs) < REALTIME_STATE_REPEAT_GUARD_MS) {
+#if DEBUG_ROW_TRACKERS
+            Serial.print("[REALTIME ROW] duplicate short state ignored text=[");
+            Serial.print(text);
+            Serial.println("]");
+#endif
+            return;
+        }
+
+        lastRealtimeStateRowText = text;
+        lastRealtimeStateRowMs = nowMs;
+        sendRealtimeRowText(text, detected.y, "immediate-state");
+        return;
+    }
+
     int trackerIndex = findMatchingTracker(text, detected.y);
 
     if (trackerIndex < 0) {
@@ -1709,7 +2235,10 @@ void updateRowTrackerWithDetectedRow(struct DetectedRow detected)
     Serial.print("] stable=");
     Serial.print(rowTrackers[trackerIndex].stableCount);
 
-    if (text.length() >= MAX_CHARS_PER_LINE) {
+    if (isRealtimePanelMode()) {
+        Serial.print("/");
+        Serial.println(REALTIME_COORD_FREEZE_CONFIRM_COUNT);
+    } else if (text.length() >= activeSlotCount()) {
         Serial.print("/");
         Serial.println(ROW_FREEZE_CONFIRM_COUNT);
     } else {
@@ -1718,12 +2247,19 @@ void updateRowTrackerWithDetectedRow(struct DetectedRow detected)
     }
 #endif
 
-    if (text.length() >= MAX_CHARS_PER_LINE &&
+    if (isRealtimePanelMode()) {
+        if (rowTrackers[trackerIndex].stableCount >= REALTIME_COORD_FREEZE_CONFIRM_COUNT) {
+            freezeRow(trackerIndex);
+        }
+        return;
+    }
+
+    if (text.length() >= activeSlotCount() &&
         rowTrackers[trackerIndex].stableCount >= ROW_FREEZE_CONFIRM_COUNT) {
         freezeRow(trackerIndex);
     }
 
-    if (text.length() < MAX_CHARS_PER_LINE &&
+    if (text.length() < activeSlotCount() &&
         rowTrackers[trackerIndex].stableCount >= SHORT_ROW_FREEZE_CONFIRM_COUNT) {
         freezeRow(trackerIndex);
     }
@@ -1807,6 +2343,9 @@ void resetCaptureRowsKeepCalibration()
 
     frozenPassageRowCount = 0;
     consecutiveInvokeFails = 0;
+    lastRealtimeStateRowText = "";
+    lastRealtimeStateRowMs = 0;
+    resetDrawMicroBatch();
 
     latestPassageText = "";
     passageReadyForSpi = false;
@@ -1825,7 +2364,20 @@ String buildFullPassageWithNewlines()
     String passage = "";
 
     for (int i = 0; i < frozenPassageRowCount; i++) {
-        passage += frozenPassageRows[i];
+        String row = frozenPassageRows[i];
+
+        if (currentPanelMode == ESP_PANEL_DEBUG) {
+            /*
+               Preserve the old debug protocol as fixed 8-slot rows.
+               Do not trim to 7 or collapse rows around spaces.
+            */
+            row = row.substring(0, MAX_CHARS_PER_LINE);
+            while (row.length() < MAX_CHARS_PER_LINE) {
+                row += " ";
+            }
+        }
+
+        passage += row;
 
         if (i < frozenPassageRowCount - 1) {
             passage += "\n";
@@ -2077,12 +2629,22 @@ bool decodeStoredJpegToGray96()
         return false;
     }
 
-    Serial.println("[IMG] final decode JPEG -> 96x96 grayscale now");
+    /*
+       IMPORTANT MEMORY FIX:
+       The previous version allocated fullW * fullH bytes for a temporary
+       full-resolution RGB/grayscale image. For a 240x240 JPEG that is 57,600 bytes,
+       which can fail on ESP32 after AI/SPI/String/JPEG allocations fragment heap.
+
+       New version directly downsamples every decoded JPEG MCU pixel into the
+       final 96x96 RGB332 payload. No fullGray malloc is needed.
+    */
+    Serial.println("[IMG] final decode JPEG -> direct 96x96 RGB332 now");
 
     std::vector<uint8_t> jpegBytes = base64DecodeToBytes(storedJpegBase64);
 
     if (jpegBytes.empty()) {
         Serial.println("[IMG] base64 decode failed");
+        storedJpegBase64 = "";
         return false;
     }
 
@@ -2093,6 +2655,7 @@ bool decodeStoredJpegToGray96()
 
     if (!ok) {
         Serial.println("[IMG] JPEGDecoder.decodeArray failed");
+        storedJpegBase64 = "";
         return false;
     }
 
@@ -2101,6 +2664,7 @@ bool decodeStoredJpegToGray96()
 
     if (fullW <= 0 || fullH <= 0) {
         Serial.println("[IMG] invalid JPEG width/height");
+        storedJpegBase64 = "";
         return false;
     }
 
@@ -2108,15 +2672,6 @@ bool decodeStoredJpegToGray96()
     Serial.print(fullW);
     Serial.print("x");
     Serial.println(fullH);
-
-    uint8_t *fullGray = (uint8_t *)malloc((size_t)fullW * (size_t)fullH);
-
-    if (!fullGray) {
-        Serial.println("[IMG] fullGray malloc failed");
-        return false;
-    }
-
-    memset(fullGray, 0, (size_t)fullW * (size_t)fullH);
 
     int mcuW = JpegDec.MCUWidth;
     int mcuH = JpegDec.MCUHeight;
@@ -2129,39 +2684,116 @@ bool decodeStoredJpegToGray96()
         int copyW = ((mcuX + mcuW) <= fullW) ? mcuW : (fullW - mcuX);
         int copyH = ((mcuY + mcuH) <= fullH) ? mcuH : (fullH - mcuY);
 
+        if (copyW <= 0 || copyH <= 0) {
+            continue;
+        }
+
         for (int y = 0; y < copyH; y++) {
+            int fullY = mcuY + y;
+            int dstY = (fullY * GRAY_H) / fullH;
+
+            if (dstY < 0) dstY = 0;
+            if (dstY >= GRAY_H) dstY = GRAY_H - 1;
+
             for (int x = 0; x < copyW; x++) {
+                int fullX = mcuX + x;
+                int dstX = (fullX * GRAY_W) / fullW;
+
+                if (dstX < 0) dstX = 0;
+                if (dstX >= GRAY_W) dstX = GRAY_W - 1;
+
                 uint16_t c = pImg[y * mcuW + x];
 
-                uint8_t r = (uint8_t)((((c >> 11) & 0x1F) * 255) / 31);
-                uint8_t g = (uint8_t)((((c >> 5) & 0x3F) * 255) / 63);
-                uint8_t b = (uint8_t)(((c & 0x1F) * 255) / 31);
+                /*
+                   JPEGDecoder gives RGB565 pixels.
+                   Convert directly to RGB332 so the VGA framebuffer can use
+                   the byte as-is:
 
-                uint8_t grayPix = (uint8_t)((77 * r + 150 * g + 29 * b) >> 8);
-                fullGray[(mcuY + y) * fullW + (mcuX + x)] = grayPix;
+                       bit 7..5 = red   (3 bits)
+                       bit 4..2 = green (3 bits)
+                       bit 1..0 = blue  (2 bits)
+
+                   Payload size stays 96*96*1 = 9216 bytes.
+                */
+                uint8_t r3 = (uint8_t)(((c >> 11) & 0x1F) >> 2);
+                uint8_t g3 = (uint8_t)(((c >> 5) & 0x3F) >> 3);
+                uint8_t b2 = (uint8_t)((c & 0x1F) >> 3);
+                uint8_t rgb332Pix = (uint8_t)((r3 << 5) | (g3 << 2) | b2);
+
+                latestGrayImage[dstY * GRAY_W + dstX] = rgb332Pix;
             }
         }
     }
 
-    for (int y = 0; y < GRAY_H; y++) {
-        int srcY = (y * fullH) / GRAY_H;
-
-        for (int x = 0; x < GRAY_W; x++) {
-            int srcX = (x * fullW) / GRAY_W;
-            latestGrayImage[y * GRAY_W + x] = fullGray[srcY * fullW + srcX];
-        }
-    }
-
-    free(fullGray);
-
     latestGrayImageValid = true;
 
-    Serial.print("[IMG] grayscale payload bytes=");
+    Serial.print("[IMG] RGB332 payload bytes=");
     Serial.println(GRAY_BYTES);
+
+    /*
+       Drop the base64 String after decode to reduce heap pressure before the
+       large 9,240-byte SPI image packet is built.
+    */
+    storedJpegBase64 = "";
 
     return true;
 #else
     return false;
+#endif
+}
+
+
+/* =========================
+   Manual debug image capture
+   ========================= */
+
+void requestDebugImageCaptureFromSpi(void)
+{
+    if (currentPanelMode != ESP_PANEL_DEBUG) {
+        Serial.println("[IMG CAPTURE] 0xD4 ignored: not in DEBUG panel");
+        return;
+    }
+
+    debugImageCaptureRequested = true;
+    Serial.println("[IMG CAPTURE] 0xD4 received: KEY0 debug image capture queued");
+}
+
+void captureDebugImagePacketNow(void)
+{
+#if ENABLE_IMAGE_CAPTURE
+    if (currentPanelMode != ESP_PANEL_DEBUG) {
+        Serial.println("[IMG CAPTURE] skipped: no longer in DEBUG panel");
+        return;
+    }
+
+    Serial.println("[IMG CAPTURE] capturing one debug image now");
+
+    latestPassageText = "";
+    passageReadyForSpi = false;
+    latestGrayImageValid = false;
+    memset(latestGrayImage, 0, sizeof(latestGrayImage));
+
+    /*
+       Do NOT clear frozenPassageRowCount / row trackers here.
+       KEY0 image capture should be an image-side action only; clearing OCR
+       state caused following debug text to look truncated/recalibrated.
+    */
+    storeCurrentJpegString("KEY0 debug manual image capture");
+
+    if (decodeStoredJpegToGray96()) {
+        latestPassageText = "";
+        buildFinalPacket();
+        Serial.println("[IMG CAPTURE] image packet queued for FPGA");
+    } else {
+        latestPassageText = "NOIMAGE";
+        latestGrayImageValid = false;
+        buildFinalPacket();
+        Serial.println("[IMG CAPTURE] image capture failed, NOIMAGE text packet queued");
+    }
+#else
+    latestPassageText = "NOIMAGE";
+    latestGrayImageValid = false;
+    buildFinalPacket();
 #endif
 }
 
@@ -2176,13 +2808,21 @@ void finalizeCapture()
 
     printFrozenRows();
 
-    latestPassageText = buildFullPassageForSpiSpaces();
+    if (currentPanelMode == ESP_PANEL_DEBUG) {
+        /*
+           Debug VGA panel expects fixed 8-character rows. Preserve row breaks
+           instead of joining everything into one sentence.
+        */
+        latestPassageText = buildFullPassageWithNewlines();
+    } else {
+        latestPassageText = buildFullPassageForSpiSpaces();
+    }
 
     Serial.println();
     Serial.println("========== FULL PASSAGE ==========");
     Serial.println(buildFullPassageWithNewlines());
     Serial.println("==================================");
-    Serial.print("SPI passage with spaces only: ");
+    Serial.print("SPI passage text: ");
     Serial.println(latestPassageText);
     Serial.println();
 
@@ -2614,22 +3254,45 @@ void handlePendingSpiTriggerInMainLoop()
 
 void maybeUpdateImageAfterFourRows()
 {
-#if ENABLE_IMAGE_CAPTURE
-    if (!captureActive) {
-        return;
-    }
-
-    if (imageUpdatedAfterFourRows) {
-        return;
-    }
-
-    if (frozenPassageRowCount > 4) {
-        imageUpdatedAfterFourRows = true;
-        storeCurrentJpegString(">4 frozen rows update");
-    }
-#endif
+    /* Automatic >4-row image capture is disabled in the new realtime debug flow.
+       Debug images are captured only when IMG sends 0xD4 after KEY0. */
+    return;
 }
 
+
+
+void setPanelModeFromSpi(int mode)
+{
+    if (mode != ESP_PANEL_MENU && mode != ESP_PANEL_SNAKE &&
+        mode != ESP_PANEL_DRAW && mode != ESP_PANEL_DEBUG && mode != ESP_PANEL_BATTLE) {
+        return;
+    }
+
+    if (currentPanelMode == mode) {
+        Serial.print("[PANEL] mode already ");
+        Serial.println(panelModeName(mode));
+        return;
+    }
+
+    Serial.print("[PANEL] switching to ");
+    Serial.println(panelModeName(mode));
+
+    currentPanelMode = mode;
+
+    /* A panel switch means a different calibration/protocol. Clear old OCR
+       trackers and packets, then wait for that panel's calibration row. */
+    resetAllMemory();
+
+    if (mode == ESP_PANEL_MENU) {
+        captureActive = false;
+        calibrationReady = false;
+        Serial.println("[PANEL] menu mode: OCR rows ignored until DEBUG/SNAKE/DRAW mode");
+    } else if (mode == ESP_PANEL_DEBUG) {
+        Serial.println("[PANEL] DEBUG mode: old START321 / 8-slot debug protocol");
+    } else {
+        Serial.println("[PANEL] realtime mode: X99Y99 / 6-slot row protocol");
+    }
+}
 
 /* =========================
    Session start handling
@@ -2646,7 +3309,7 @@ void startSessionFromFpgaButton(void)
     Serial.println("========== SESSION START ==========");
     Serial.println("[SESSION] 0x5F received from FPGA button interrupt");
     Serial.println("[SESSION] This command only starts the session. It is ignored afterwards.");
-    Serial.println("[SESSION] Clearing old packet/state and enabling Grove scanning now.");
+    Serial.println("[SESSION] Clearing old packet/state. IMG will send panel mode next.");
     Serial.println("===================================");
 
     /* Drop any stale packet and force DATA_READY low before starting. */
@@ -2684,7 +3347,7 @@ void spiCommandTask(void *pvParameters)
     (void)pvParameters;
 
     Serial.println("[SPI] DMA command task started");
-    Serial.println("[SPI] commands: 0x5F session start, 0xA1 read length, 0xA2 read packet, 0xA3 abort");
+    Serial.println("[SPI] commands: 0x5F session start, 0xD0 debug, 0xD1 snake, 0xD2 draw, 0xD3 menu, 0xD4 debug image capture, 0xA1 len, 0xA2 packet, 0xA3 abort");
     Serial.println("[SPI] ESP is DMA slave; ESP_DATA_READY notifies FPGA master");
 
     for (;;) {
@@ -2703,6 +3366,24 @@ void spiCommandTask(void *pvParameters)
 
         if (cmd == SPI_CMD_SESSION_START) {
             startSessionFromFpgaButton();
+        }
+        else if (cmd == SPI_CMD_PANEL_DEBUG) {
+            setPanelModeFromSpi(ESP_PANEL_DEBUG);
+        }
+        else if (cmd == SPI_CMD_PANEL_SNAKE) {
+            setPanelModeFromSpi(ESP_PANEL_SNAKE);
+        }
+        else if (cmd == SPI_CMD_PANEL_DRAW) {
+            setPanelModeFromSpi(ESP_PANEL_DRAW);
+        }
+        else if (cmd == SPI_CMD_PANEL_BATTLE) {
+            setPanelModeFromSpi(ESP_PANEL_BATTLE);
+        }
+        else if (cmd == SPI_CMD_PANEL_MENU) {
+            setPanelModeFromSpi(ESP_PANEL_MENU);
+        }
+        else if (cmd == SPI_CMD_DEBUG_CAPTURE_IMAGE) {
+            requestDebugImageCaptureFromSpi();
         }
         else if (cmd == SPI_CMD_READ_LENGTH) {
             uint32_t lenToSend = 0;
@@ -2885,6 +3566,16 @@ void loop()
         return;
     }
 
+    if (currentPanelMode == ESP_PANEL_MENU) {
+        delay(10);
+        return;
+    }
+
+    if (debugImageCaptureRequested) {
+        debugImageCaptureRequested = false;
+        captureDebugImagePacketNow();
+    }
+
     /*
        Keep flushing frozen rows into the SPI packet queue, but never stop
        AI.invoke just because ESP_DATA_READY is high. The SPI DMA task owns
@@ -2941,9 +3632,11 @@ void loop()
             duplicateResetAfterPendingFlush = true;
             consecutiveInvokeFails = 0;
 
+            flushDrawMicroBatch(true, "invoke-fail");
             flushPendingFrozenRows();
         }
     }
 
+    flushDrawMicroBatch(false, "end-loop");
     delay(PRINT_DELAY_MS);
 }

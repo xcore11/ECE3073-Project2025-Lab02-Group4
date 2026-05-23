@@ -3,7 +3,7 @@
 # Machine generated for CPU 'control_proc' in SOPC Builder design 'NIOSII_WEEK3'
 # SOPC Builder design path: ../../NIOSII_WEEK3.sopcinfo
 #
-# Generated: Wed May 20 15:58:43 SGT 2026
+# Generated: Sat May 23 01:47:25 SGT 2026
 
 # DO NOT MODIFY THIS FILE
 #
@@ -50,4 +50,4 @@
 memory 0x4000000 0x8000000 cache
 
 # control_mem
-memory 0x8008000 0x8010000 cache
+memory 0x8002000 0x8004000 cache

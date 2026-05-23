@@ -330,12 +330,14 @@ static int store_text_and_metadata_from_packet(uint32_t packet_len)
     /* Store received sentence into TEXT_BUFFER_BASE. */
     sdram_store_text_from_packet(header_len, text_len);
 
-    /* Store raw grayscale image into IMAGE_BUFFER_BASE. */
-    sdram_clear_image_region(IMAGE_BUFFER_SIZE);
-
+    /* Store raw grayscale image into IMAGE_BUFFER_BASE.
+       Text-only realtime debug packets must NOT clear the latest image,
+       because the user may press KEY1 after capture to reuse it as draw BG. */
     if (image_len > 0) {
         uint32_t image_src_offset = (uint32_t)header_len + (uint32_t)text_len;
         uint32_t copy_len = image_len;
+
+        sdram_clear_image_region(IMAGE_BUFFER_SIZE);
 
         if (copy_len > IMAGE_BUFFER_SIZE) {
             copy_len = IMAGE_BUFFER_SIZE;
@@ -355,6 +357,19 @@ static int store_text_and_metadata_from_packet(uint32_t packet_len)
     sdram_write_status(STATUS_IMAGE_LENGTH, image_len);
     sdram_write_status(STATUS_LAST_ERROR, status == 1 ? 0 : status);
 
+    /* Shared event counters for realtime VGA debug panel.
+       VGA debug polls these counters and appends new text / refreshes image. */
+    if (text_len > 0) {
+        uint32_t text_seq = IORD_32DIRECT(SHARED_FLAGS_BASE, FLAG_TEXT_READY_SHARED);
+        IOWR_32DIRECT(SHARED_FLAGS_BASE, FLAG_TEXT_READY_SHARED, text_seq + 1);
+    }
+
+    if (image_len > 0) {
+        uint32_t image_seq = IORD_32DIRECT(SHARED_FLAGS_BASE, FLAG_IMAGE_READY);
+        IOWR_32DIRECT(SHARED_FLAGS_BASE, FLAG_IMAGE_READY, image_seq + 1);
+        IOWR_32DIRECT(SHARED_FLAGS_BASE, FLAG_DEBUG_STATUS, DEBUG_STATUS_IMAGE_READY);
+    }
+
     printf("Received sentence: %s\n", spi_rx_text);
     printf("Image stored: %ux%u, %lu bytes\n",
            image_w,
@@ -373,6 +388,12 @@ static int store_text_and_metadata_from_packet(uint32_t packet_len)
 #define SPI_CMD_READ_LENGTH         0xA1
 #define SPI_CMD_READ_PACKET         0xA2
 #define SPI_CMD_ABORT_PACKET        0xA3
+#define SPI_CMD_PANEL_DEBUG         0xD0
+#define SPI_CMD_PANEL_SNAKE         0xD1
+#define SPI_CMD_PANEL_DRAW          0xD2
+#define SPI_CMD_PANEL_MENU          0xD3
+#define SPI_CMD_PANEL_BATTLE        0xD5
+#define SPI_CMD_DEBUG_CAPTURE_IMAGE 0xD4
 
 #define SPI_COMMAND_BYTES           4
 #define SPI_LEN_READ_BYTES          8
@@ -380,7 +401,13 @@ static int store_text_and_metadata_from_packet(uint32_t packet_len)
 
 #define SPI_LENGTH_RETRY_COUNT      5
 #define SPI_LENGTH_RETRY_DELAY_US   20000
-#define SPI_ESP_QUEUE_DELAY_US      10000
+/*
+   ESP32 DMA slave sometimes reports a valid length before the packet DMA
+   buffer is fully queued. 10 ms still produced all-zero first packet bytes
+   during fast realtime row streaming. Use a slightly larger command->reply
+   gap so wall/coordinate packets are not randomly dropped.
+*/
+#define SPI_ESP_QUEUE_DELAY_US      25000
 
 static void spi_send_command4(uint8_t cmd)
 {
@@ -400,6 +427,39 @@ void spi_send_session_start(void)
     spi_send_command4(SPI_CMD_SESSION_START);
 
     /* Give ESP SPI task time to process the start command before packet IRQs. */
+    usleep(SPI_ESP_QUEUE_DELAY_US);
+}
+
+
+void spi_send_panel_mode(uint32_t panel_mode)
+{
+    uint8_t cmd = SPI_CMD_PANEL_MENU;
+
+    if (panel_mode == 1) {
+        cmd = SPI_CMD_PANEL_SNAKE;
+    } else if (panel_mode == 2) {
+        cmd = SPI_CMD_PANEL_DRAW;
+    } else if (panel_mode == 3) {
+        cmd = SPI_CMD_PANEL_DEBUG;
+    } else if (panel_mode == 4) {
+        cmd = SPI_CMD_PANEL_BATTLE;
+    }
+
+    printf("SPI debug: sending panel mode command 0x%02X for mode %lu\n",
+           cmd,
+           (unsigned long)panel_mode);
+    fflush(stdout);
+
+    spi_send_command4(cmd);
+    usleep(SPI_ESP_QUEUE_DELAY_US);
+}
+
+void spi_send_debug_image_capture(void)
+{
+    printf("SPI debug: sending 0xD4 debug image capture command to ESP\n");
+    fflush(stdout);
+
+    spi_send_command4(SPI_CMD_DEBUG_CAPTURE_IMAGE);
     usleep(SPI_ESP_QUEUE_DELAY_US);
 }
 

@@ -1,7 +1,7 @@
-#ifndef TIME_GAME_H
-#define TIME_GAME_H
+#ifndef DRAW_GAME_H
+#define DRAW_GAME_H
 
-void time_game_init(void);
-void time_game_update(void);
+void draw_game_init(void);
+void draw_game_update(void);
 
 #endif

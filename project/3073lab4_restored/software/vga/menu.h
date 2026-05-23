@@ -1,16 +1,35 @@
-#ifndef MENU_H
-#define MENU_H
+#ifndef VGA_PROJECT_MENU_SCREEN_IDS_H_INCLUDED
+#define VGA_PROJECT_MENU_SCREEN_IDS_H_INCLUDED
 
-typedef enum
-{
-    SCREEN_MENU = 0,
-    SCREEN_SNAKE,
-    SCREEN_REACTION,
-    SCREEN_DEBUG
-} ScreenState;
+/*
+   Screen identifiers are macros, not enum values.
+
+   This avoids stale Nios/Eclipse enum/indexer problems:
+   - Symbol 'SCREEN_MENU' / 'SCREEN_SNAKE' / etc could not be resolved
+   - redefinition of ScreenState / SCREEN_* when old generated files are mixed in
+*/
+#ifndef SCREEN_MENU
+#define SCREEN_MENU   0
+#endif
+
+#ifndef SCREEN_BATTLE
+#define SCREEN_BATTLE 1
+#endif
+
+#ifndef SCREEN_SNAKE
+#define SCREEN_SNAKE  2
+#endif
+
+#ifndef SCREEN_DRAW
+#define SCREEN_DRAW   3
+#endif
+
+#ifndef SCREEN_DEBUG
+#define SCREEN_DEBUG  4
+#endif
 
 void menu_init(void);
 void menu_draw(int selected_index);
-ScreenState menu_get_selected_screen(int selected_index);
+int menu_get_selected_screen(int selected_index);
 
-#endif
+#endif /* VGA_PROJECT_MENU_SCREEN_IDS_H_INCLUDED */

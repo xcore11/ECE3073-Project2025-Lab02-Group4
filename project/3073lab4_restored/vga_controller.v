@@ -1,9 +1,22 @@
 // *********************************
 //
 // VGA Controller Module
-// Mixed mode version:
-// - Image rectangle is always shown as grayscale.
-// - Everything outside the image rectangle uses a 4-bit RGB palette for colorful UI.
+// Direct RGB332 framebuffer version.
+//
+// This version is matched to the altsyncram-based pxl.v.
+// The RAM has registered read address and registered output, so the
+// active-video signal is delayed by 2 VGA clocks before RGB output.
+//
+// Pixel RAM stores one 8-bit RGB332 pixel per logical 320x240 pixel:
+//
+//     VGA_DATA[7:5] = Red   intensity, 0 to 7
+//     VGA_DATA[4:2] = Green intensity, 0 to 7
+//     VGA_DATA[1:0] = Blue  intensity, 0 to 3
+//
+// The controller expands RGB332 to physical RGB444 VGA pins.
+// Logical framebuffer size: 320x240
+// Physical VGA timing:       640x480 @ 60 Hz, 25 MHz pixel clock
+// Scaling:                   each framebuffer pixel is doubled 2x2
 //
 // *********************************
 
@@ -12,8 +25,8 @@ module vga_controller (
     input VGA_CLK,
 
     // Controller interface with the pixel buffer
-    input [3:0] VGA_DATA,
-    output [18:0] VGA_ADDR,
+    input [7:0] VGA_DATA,
+    output [16:0] VGA_ADDR,
 
     // Pixel data output
     output reg [3:0] VGA_R,
@@ -35,101 +48,76 @@ module vga_controller (
     parameter V_FRONT = 10;
     parameter V_CYCLE = 525;
 
-    // These must match main.c
-    parameter IMAGE_BOX_X = 114;
-    parameter IMAGE_BOX_Y = 24;
-    parameter IMAGE_BOX_W = 92;
-    parameter IMAGE_BOX_H = 92;
+    parameter FB_WIDTH  = 320;
+    parameter FB_HEIGHT = 240;
 
-    reg [18:0] H_ADDR = 19'd0;
-    reg [18:0] V_ADDR = 19'd0;
+    reg [9:0] h_count = 10'd0;
+    reg [9:0] v_count = 10'd0;
 
-    wire pixelValid;
-    wire [18:0] H_MEM_ADDR;
-    wire [18:0] V_MEM_ADDR;
+    wire active_video;
+    wire [9:0] active_x_640;
+    wire [8:0] active_y_480;
+    wire [8:0] fb_x;
+    wire [7:0] fb_y;
+    wire [16:0] fb_addr_calc;
 
-    // 320x240 logical pixel coordinate after 640x480 -> 320x240 scaling
-    wire [9:0] pixel_x;
-    wire [8:0] pixel_y;
-    wire inside_image_area;
-
-    always @(posedge VGA_CLK) begin
-        if (H_ADDR < H_CYCLE - 1)
-            H_ADDR <= H_ADDR + 1'b1;
-        else
-            H_ADDR <= 19'd0;
-    end
+    // The altsyncram pxl.v has address_reg_b=CLOCK0 and outdata_reg_b=CLOCK0.
+    // That means the pixel returned on VGA_DATA belongs to the address from
+    // about two VGA clocks earlier. Delay active_video by the same amount so
+    // blanking stays aligned with valid RGB data.
+    reg active_video_d1 = 1'b0;
+    reg active_video_d2 = 1'b0;
 
     always @(posedge VGA_CLK) begin
-        if (H_ADDR == H_CYCLE - 1) begin
-            if (V_ADDR < V_CYCLE - 1)
-                V_ADDR <= V_ADDR + 1'b1;
+        if (h_count == H_CYCLE - 1) begin
+            h_count <= 10'd0;
+
+            if (v_count == V_CYCLE - 1)
+                v_count <= 10'd0;
             else
-                V_ADDR <= 19'd0;
-        end
-    end
-
-    assign VGA_HS = ~(H_ADDR < H_SYNC);
-    assign VGA_VS = ~(V_ADDR < V_SYNC);
-
-    assign pixelValid =
-        (H_ADDR > (H_SYNC + H_BACK) && H_ADDR < (H_CYCLE - H_FRONT)) &&
-        (V_ADDR > (V_SYNC + V_BACK) && V_ADDR < (V_CYCLE - V_FRONT));
-
-    assign H_MEM_ADDR = H_ADDR - (H_SYNC + H_BACK) + 1;
-    assign V_MEM_ADDR = V_ADDR - (V_SYNC + V_BACK);
-
-    assign pixel_x = H_MEM_ADDR[18:1]; // same as H_MEM_ADDR >> 1
-    assign pixel_y = V_MEM_ADDR[18:1]; // same as V_MEM_ADDR >> 1
-
-    assign inside_image_area =
-        (pixel_x >= IMAGE_BOX_X) && (pixel_x < (IMAGE_BOX_X + IMAGE_BOX_W)) &&
-        (pixel_y >= IMAGE_BOX_Y) && (pixel_y < (IMAGE_BOX_Y + IMAGE_BOX_H));
-
-    /*
-       Final color decision:
-
-       1. Outside active video: black.
-       2. Inside image rectangle: treat VGA_DATA as grayscale.
-          This keeps your SPI/captured image grayscale.
-       3. Outside image rectangle: treat VGA_DATA as a color index.
-          This makes your C-drawn UI colorful.
-    */
-    always @(*) begin
-        if (!pixelValid) begin
-            VGA_R = 4'h0;
-            VGA_G = 4'h0;
-            VGA_B = 4'h0;
-        end
-        else if (inside_image_area) begin
-            VGA_R = VGA_DATA;
-            VGA_G = VGA_DATA;
-            VGA_B = VGA_DATA;
+                v_count <= v_count + 10'd1;
         end
         else begin
-            case (VGA_DATA)
-                4'h0: begin VGA_R = 4'h0; VGA_G = 4'h0; VGA_B = 4'h0; end // black
-                4'h1: begin VGA_R = 4'h0; VGA_G = 4'h0; VGA_B = 4'h5; end // navy
-                4'h2: begin VGA_R = 4'h0; VGA_G = 4'h2; VGA_B = 4'h9; end // panel blue
-                4'h3: begin VGA_R = 4'h0; VGA_G = 4'h0; VGA_B = 4'hF; end // blue
-                4'h4: begin VGA_R = 4'h0; VGA_G = 4'hF; VGA_B = 4'h0; end // green
-                4'h5: begin VGA_R = 4'h0; VGA_G = 4'hF; VGA_B = 4'hF; end // cyan
-                4'h6: begin VGA_R = 4'hF; VGA_G = 4'h0; VGA_B = 4'h0; end // red
-                4'h7: begin VGA_R = 4'hF; VGA_G = 4'h0; VGA_B = 4'hF; end // magenta
-                4'h8: begin VGA_R = 4'h4; VGA_G = 4'h4; VGA_B = 4'h4; end // dark gray
-                4'h9: begin VGA_R = 4'h6; VGA_G = 4'h6; VGA_B = 4'h6; end // gray
-                4'hA: begin VGA_R = 4'h8; VGA_G = 4'h8; VGA_B = 4'h8; end // gray
-                4'hB: begin VGA_R = 4'hA; VGA_G = 4'hA; VGA_B = 4'hA; end // light gray
-                4'hC: begin VGA_R = 4'hC; VGA_G = 4'hC; VGA_B = 4'hC; end // light gray
-                4'hD: begin VGA_R = 4'hE; VGA_G = 4'hE; VGA_B = 4'hE; end // almost white
-                4'hE: begin VGA_R = 4'hF; VGA_G = 4'hF; VGA_B = 4'h0; end // yellow
-                4'hF: begin VGA_R = 4'hF; VGA_G = 4'hF; VGA_B = 4'hF; end // white
-                default: begin VGA_R = 4'h0; VGA_G = 4'h0; VGA_B = 4'h0; end
-            endcase
+            h_count <= h_count + 10'd1;
         end
     end
 
-    // Scale the addresses to 320x240 instead of 640x480.
-    assign VGA_ADDR = ((H_MEM_ADDR >> 1) + ((V_MEM_ADDR >> 1) * 320));
+    assign VGA_HS = ~(h_count < H_SYNC);
+    assign VGA_VS = ~(v_count < V_SYNC);
+
+    assign active_video =
+        (h_count >= (H_SYNC + H_BACK)) &&
+        (h_count <  (H_SYNC + H_BACK + 640)) &&
+        (v_count >= (V_SYNC + V_BACK)) &&
+        (v_count <  (V_SYNC + V_BACK + 480));
+
+    assign active_x_640 = h_count - (H_SYNC + H_BACK);
+    assign active_y_480 = v_count - (V_SYNC + V_BACK);
+
+    // 640x480 physical pixel coordinate -> 320x240 framebuffer coordinate.
+    assign fb_x = active_x_640[9:1];
+    assign fb_y = active_y_480[8:1];
+
+    assign fb_addr_calc = fb_x + (fb_y * FB_WIDTH);
+    assign VGA_ADDR = active_video ? fb_addr_calc : 17'd0;
+
+    always @(posedge VGA_CLK) begin
+        active_video_d1 <= active_video;
+        active_video_d2 <= active_video_d1;
+
+        if (active_video_d2) begin
+            // RGB332 -> RGB444 expansion.
+            // Repeating the most-significant source bit gives better brightness scaling
+            // than just padding zeros.
+            VGA_R <= {VGA_DATA[7:5], VGA_DATA[7]};
+            VGA_G <= {VGA_DATA[4:2], VGA_DATA[4]};
+            VGA_B <= {VGA_DATA[1:0], VGA_DATA[1:0]};
+        end
+        else begin
+            VGA_R <= 4'h0;
+            VGA_G <= 4'h0;
+            VGA_B <= 4'h0;
+        end
+    end
 
 endmodule

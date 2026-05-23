@@ -4,7 +4,7 @@
  * Machine generated for CPU 'vga_proc' in SOPC Builder design 'NIOSII_WEEK3'
  * SOPC Builder design path: ../../NIOSII_WEEK3.sopcinfo
  *
- * Generated: Wed May 20 15:58:37 SGT 2026
+ * Generated: Sat May 23 03:32:09 SGT 2026
  */
 
 /*
@@ -235,7 +235,7 @@
  */
 
 #define ALT_MODULE_CLASS_mutex_0 altera_avalon_mutex
-#define MUTEX_0_BASE 0x8011208
+#define MUTEX_0_BASE 0x8005208
 #define MUTEX_0_IRQ -1
 #define MUTEX_0_IRQ_INTERRUPT_CONTROLLER_ID -1
 #define MUTEX_0_NAME "/dev/mutex_0"
@@ -350,7 +350,7 @@
 #define PIO_PIXELDATA_BIT_CLEARING_EDGE_REGISTER 0
 #define PIO_PIXELDATA_BIT_MODIFYING_OUTPUT_REGISTER 0
 #define PIO_PIXELDATA_CAPTURE 0
-#define PIO_PIXELDATA_DATA_WIDTH 4
+#define PIO_PIXELDATA_DATA_WIDTH 8
 #define PIO_PIXELDATA_DO_TEST_BENCH_WIRING 0
 #define PIO_PIXELDATA_DRIVEN_SIM_VALUE 0
 #define PIO_PIXELDATA_EDGE_TYPE "NONE"

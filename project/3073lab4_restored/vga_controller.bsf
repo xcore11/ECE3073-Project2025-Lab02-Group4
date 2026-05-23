@@ -33,15 +33,15 @@ refer to the applicable agreement for further details.
 	(port
 		(pt 0 48)
 		(input)
-		(text "VGA_DATA[3..0]" (rect 0 0 79 12)(font "Arial" ))
-		(text "VGA_DATA[3..0]" (rect 21 43 100 55)(font "Arial" ))
+		(text "VGA_DATA[7..0]" (rect 0 0 79 12)(font "Arial" ))
+		(text "VGA_DATA[7..0]" (rect 21 43 100 55)(font "Arial" ))
 		(line (pt 0 48)(pt 16 48)(line_width 3))
 	)
 	(port
 		(pt 264 32)
 		(output)
-		(text "VGA_ADDR[18..0]" (rect 0 0 83 12)(font "Arial" ))
-		(text "VGA_ADDR[18..0]" (rect 160 27 243 39)(font "Arial" ))
+		(text "VGA_ADDR[16..0]" (rect 0 0 83 12)(font "Arial" ))
+		(text "VGA_ADDR[16..0]" (rect 160 27 243 39)(font "Arial" ))
 		(line (pt 264 32)(pt 248 32)(line_width 3))
 	)
 	(port
@@ -117,6 +117,16 @@ refer to the applicable agreement for further details.
 	(parameter
 		"V_CYCLE"
 		"525"
+		""
+		(type "PARAMETER_SIGNED_DEC")	)
+	(parameter
+		"FB_WIDTH"
+		"320"
+		""
+		(type "PARAMETER_SIGNED_DEC")	)
+	(parameter
+		"FB_HEIGHT"
+		"240"
 		""
 		(type "PARAMETER_SIGNED_DEC")	)
 	(drawing
