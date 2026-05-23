@@ -41,7 +41,7 @@ static void delay(int loops)
    Pixel drawing
    ========================= */
 
-static void draw_pixel(int x, int y, unsigned char color)
+static void draw_pixel(int x, int y, vga_color_t color)
 {
     if (x < 0 || x >= VGA_WIDTH || y < 0 || y >= VGA_HEIGHT)
     {
@@ -54,13 +54,13 @@ static void draw_pixel(int x, int y, unsigned char color)
     int address = x + (y * VGA_WIDTH);
 
     /*
-       Your VGA hardware appears to use 4-bit pixel data.
-       Keep only lower 4 bits to prevent RGB332-style corruption.
+       Hardware pixel data is now native RGB332.
+       Only the lower 8 bits are sent to the pixel RAM.
     */
-    color = color & 0x0F;
+    color = (vga_color_t)(color & VGA_RGB332_MASK);
 
     IOWR_32DIRECT(PIO_IMGADDR_BASE, 0, address);
-    IOWR_32DIRECT(PIO_PIXELDATA_BASE, 0, color);
+    IOWR_32DIRECT(PIO_PIXELDATA_BASE, 0, (uint32_t)color);
 
     /*
        Write enable pulse.
@@ -76,7 +76,7 @@ void vga_init(void)
     animation_offset = 0;
 }
 
-void vga_fill_background(unsigned char bg_color)
+void vga_fill_background(vga_color_t bg_color)
 {
     int x;
     int y;
@@ -142,7 +142,7 @@ static const unsigned char font_09[10][8] = {
    Software text drawing
    ========================= */
 
-void vga_print_software_text(int pixel_x, int pixel_y, const char* text, unsigned char color)
+void vga_print_software_text(int pixel_x, int pixel_y, const char* text, vga_color_t color)
 {
     int i = 0;
 
@@ -206,7 +206,7 @@ void vga_print_software_text(int pixel_x, int pixel_y, const char* text, unsigne
    Shapes
    ========================= */
 
-void vga_draw_rectangle(int start_x, int start_y, int width, int height, unsigned char color)
+void vga_draw_rectangle(int start_x, int start_y, int width, int height, vga_color_t color)
 {
     int x;
     int y;
@@ -220,7 +220,7 @@ void vga_draw_rectangle(int start_x, int start_y, int width, int height, unsigne
     }
 }
 
-void vga_draw_circle(int center_x, int center_y, int radius, unsigned char color)
+void vga_draw_circle(int center_x, int center_y, int radius, vga_color_t color)
 {
     int x;
     int y;
@@ -239,10 +239,10 @@ void vga_draw_circle(int center_x, int center_y, int radius, unsigned char color
 
 /* =========================
    Full screen image draw
-   Used only if you have a 320x240 image array.
+   Used only if you have a 320x240 RGB332 image array.
    ========================= */
 
-void vga_draw_image(const unsigned char *image_array)
+void vga_draw_image(const vga_color_t *image_array)
 {
     int x;
     int y;
@@ -288,7 +288,7 @@ void process_dynamic_image(const unsigned char *raw_frame)
 {
     int x;
     int y;
-    unsigned char processed_pixel;
+    vga_color_t processed_pixel;
 
     for (y = 24; y < (24 + 92); y++)
     {
@@ -296,7 +296,7 @@ void process_dynamic_image(const unsigned char *raw_frame)
         {
             unsigned char pixel = raw_frame[(x - 114) + ((y - 24) * 92)];
 
-            processed_pixel = (pixel > 0x80) ? 0x0F : 0x00;
+            processed_pixel = vga_gray8(pixel);
 
             draw_pixel(x, y, processed_pixel);
         }

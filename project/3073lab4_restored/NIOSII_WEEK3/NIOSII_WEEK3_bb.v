@@ -64,7 +64,7 @@ module NIOSII_WEEK3 (
 	output	[9:0]	led_export;
 	output	[2:0]	led_module_export;
 	input	[1:0]	pb_export;
-	output	[3:0]	pixeldata_export;
+	output	[7:0]	pixeldata_export;
 	output		speaker_export;
 	input		spi_MISO;
 	output		spi_MOSI;

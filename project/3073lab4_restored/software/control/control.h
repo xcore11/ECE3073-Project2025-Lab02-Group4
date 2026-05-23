@@ -3,6 +3,29 @@
 #ifndef CONTROL_H
 #define CONTROL_H
 
+/* shared SDRAM control flags */
+#ifndef SHARED_FLAGS_BASE
+#define SHARED_FLAGS_BASE              0x05212000
+#endif
+
+#define FLAG_CONTROL_PROCESSOR_READY   0x10
+#define FLAG_CONTROL_EVENT_SEQ         0x800
+#define FLAG_CONTROL_KEY_STATE         0x804
+#define FLAG_CONTROL_KEY_PRESSED_MASK  0x808
+#define FLAG_CONTROL_SWITCH_STATE      0x80C
+#define FLAG_CONTROL_SWITCH_EVENT_SEQ  0x810
+#define FLAG_CONTROL_LAST_EVENT_TYPE   0x814
+#define FLAG_CONTROL_LAST_EVENT_VALUE  0x818
+
+#define CONTROL_EVENT_NONE             0
+#define CONTROL_EVENT_KEY              1
+#define CONTROL_EVENT_SWITCH           2
+
+#define CONTROL_KEY0_MASK              0x00000001u
+#define CONTROL_KEY1_MASK              0x00000002u
+#define CONTROL_KEY_MASK               0x00000003u
+#define CONTROL_SW_MASK                0x000003FFu
+
 ///* =========================
 //   Direct hardware base defines
 //   ========================= */
@@ -29,6 +52,9 @@
 // original switch header and more ...
 
 /* existing switch_key functions / HEX functions */
+void control_shared_flags_init(void);
+uint32_t control_get_switch_state(void);
+uint32_t control_get_key_state(void);
 void switch_setup(void);
 void key_setup(void);
 void img_rx_setup(void);

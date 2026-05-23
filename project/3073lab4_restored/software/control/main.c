@@ -14,6 +14,7 @@
 
 int main(void)
 {
+    control_shared_flags_init();
     // Setup Traffic Light
     int traffic_counter = 0;
     int traffic_state = 0;   /* 0=green, 1=yellow, 2=red */

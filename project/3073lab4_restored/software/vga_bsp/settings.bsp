@@ -2,8 +2,8 @@
 <sch:Settings xmlns:sch="http://www.altera.com/embeddedsw/bsp/schema">
         <BspType>hal</BspType>
         <BspVersion>default</BspVersion>
-        <BspGeneratedTimeStamp>May 20, 2026 2:58:56 AM</BspGeneratedTimeStamp>
-        <BspGeneratedUnixTimeStamp>1779217136252</BspGeneratedUnixTimeStamp>
+        <BspGeneratedTimeStamp>May 23, 2026 3:33:55 AM</BspGeneratedTimeStamp>
+        <BspGeneratedUnixTimeStamp>1779478435009</BspGeneratedUnixTimeStamp>
         <BspGeneratedLocation>C:\temp\ECE3073-Project2025-Lab02-Group4\project\3073lab4_restored\software\vga_bsp</BspGeneratedLocation>
         <BspSettingsFile>settings.bsp</BspSettingsFile>
         <SopcDesignFile>..\..\NIOSII_WEEK3.sopcinfo</SopcDesignFile>
@@ -984,7 +984,7 @@
         </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>mutex_0</slaveDescriptor>
-                <addressRange>0x08011208 - 0x0801120F</addressRange>
+                <addressRange>0x08005208 - 0x0800520F</addressRange>
                 <addressSpan>8</addressSpan>
                 <attributes/>
         </MemoryMap>

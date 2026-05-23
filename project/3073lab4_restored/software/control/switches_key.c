@@ -1,4 +1,6 @@
 #include "system.h"
+#include "io.h"
+#include <stdint.h>
 #include "altera_avalon_pio_regs.h"
 #include "sys/alt_irq.h"
 #include <stdio.h>
@@ -11,30 +13,90 @@ static int HEX_enable_bit = 0;
 static int scroll_counter = 0;
 static int scroll_offset = 0;
 const int scroll_speed = 2000;
-#define CON_IMG_IRQ_RX_IRQ_INTERRUPT_CONTROLLER_ID 0
-#define CON_IMG_IRQ_RX_BASE 0x8011120
-#define CON_VGA_IRQ_RX_IRQ_INTERRUPT_CONTROLLER_ID 0
-#define CON_VGA_IRQ_RX_BASE 0x8011100
-#define CON_IMG_IRQ_TX_IRQ_INTERRUPT_CONTROLLER_ID -1
-#define CON_IMG_IRQ_TX_BASE 0x8011130
-#define CON_VGA_IRQ_TX_BASE 0x8011110
-#define CON_IMG_IRQ_RX_IRQ 3
-#define CON_VGA_IRQ_RX_IRQ 4
+
+static uint32_t control_event_seq = 0;
+static uint32_t control_switch_event_seq = 0;
+
+static void shared_write32(uint32_t offset, uint32_t value)
+{
+    IOWR_32DIRECT(SHARED_FLAGS_BASE, offset, value);
+}
+
+uint32_t control_get_switch_state(void)
+{
+    return (uint32_t)(switch_state & CONTROL_SW_MASK);
+}
+
+uint32_t control_get_key_state(void)
+{
+    return (uint32_t)(key_state & CONTROL_KEY_MASK);
+}
+
+void control_shared_flags_init(void)
+{
+    switch_state = IORD_ALTERA_AVALON_PIO_DATA(PIO_SW_BASE) & CONTROL_SW_MASK;
+    key_state = IORD_ALTERA_AVALON_PIO_DATA(PIO_PB_BASE) & CONTROL_KEY_MASK;
+
+    control_event_seq = 0;
+    control_switch_event_seq = 0;
+
+    shared_write32(FLAG_CONTROL_PROCESSOR_READY, 1);
+    shared_write32(FLAG_CONTROL_EVENT_SEQ, control_event_seq);
+    shared_write32(FLAG_CONTROL_KEY_STATE, (uint32_t)key_state);
+    shared_write32(FLAG_CONTROL_KEY_PRESSED_MASK, 0);
+    shared_write32(FLAG_CONTROL_SWITCH_STATE, (uint32_t)switch_state);
+    shared_write32(FLAG_CONTROL_SWITCH_EVENT_SEQ, control_switch_event_seq);
+    shared_write32(FLAG_CONTROL_LAST_EVENT_TYPE, CONTROL_EVENT_NONE);
+    shared_write32(FLAG_CONTROL_LAST_EVENT_VALUE, 0);
+}
+
+static void publish_control_event(uint32_t event_type, uint32_t event_value, uint32_t key_pressed_mask)
+{
+    control_event_seq++;
+
+    shared_write32(FLAG_CONTROL_KEY_STATE, (uint32_t)(key_state & CONTROL_KEY_MASK));
+    shared_write32(FLAG_CONTROL_KEY_PRESSED_MASK, key_pressed_mask & CONTROL_KEY_MASK);
+    shared_write32(FLAG_CONTROL_SWITCH_STATE, (uint32_t)(switch_state & CONTROL_SW_MASK));
+    shared_write32(FLAG_CONTROL_LAST_EVENT_TYPE, event_type);
+    shared_write32(FLAG_CONTROL_LAST_EVENT_VALUE, event_value);
+
+    if (event_type == CONTROL_EVENT_SWITCH) {
+        control_switch_event_seq++;
+        shared_write32(FLAG_CONTROL_SWITCH_EVENT_SEQ, control_switch_event_seq);
+    }
+
+    shared_write32(FLAG_CONTROL_EVENT_SEQ, control_event_seq);
+}
+
+static void notify_img_and_vga_processors(void)
+{
+    /* Pulse both interrupt lines. The shared flags above tell IMG/VGA
+       whether this was KEY0, KEY1, or a switch update. */
+    IOWR_ALTERA_AVALON_PIO_DATA(CON_IMG_IRQ_TX_BASE, 0x1);
+    IOWR_ALTERA_AVALON_PIO_DATA(CON_VGA_IRQ_TX_BASE, 0x1);
+    IOWR_ALTERA_AVALON_PIO_DATA(CON_IMG_IRQ_TX_BASE, 0x0);
+    IOWR_ALTERA_AVALON_PIO_DATA(CON_VGA_IRQ_TX_BASE, 0x0);
+
+    GPIO_state = GPIO_state | 0x3;
+    IOWR_ALTERA_AVALON_PIO_DATA(PIO_GPIO_BASE, GPIO_state);
+}
 
 static void switch_isr(void* context) {
     // Clear the edge capture register
-    IOWR_ALTERA_AVALON_PIO_EDGE_CAP(PIO_SW_BASE, 0xF);
+    IOWR_ALTERA_AVALON_PIO_EDGE_CAP(PIO_SW_BASE, CONTROL_SW_MASK);
 
-    // Updates the switch switch_state
-    switch_state = IORD_ALTERA_AVALON_PIO_DATA(PIO_SW_BASE);
+    // Updates the switch switch_state and publishes SW0..SW9 to shared SDRAM.
+    switch_state = IORD_ALTERA_AVALON_PIO_DATA(PIO_SW_BASE) & CONTROL_SW_MASK;
+    publish_control_event(CONTROL_EVENT_SWITCH, (uint32_t)switch_state, 0);
+    notify_img_and_vga_processors();
 }
 
 void switch_setup(void) {
     // Clear pending switch triggers
-    IOWR_ALTERA_AVALON_PIO_EDGE_CAP(PIO_SW_BASE, 0xF);
+    IOWR_ALTERA_AVALON_PIO_EDGE_CAP(PIO_SW_BASE, CONTROL_SW_MASK);
 
     // Enable hardware interrupts
-    IOWR_ALTERA_AVALON_PIO_IRQ_MASK(PIO_SW_BASE, 0xF);
+    IOWR_ALTERA_AVALON_PIO_IRQ_MASK(PIO_SW_BASE, CONTROL_SW_MASK);
 
     // Register the ISR with the processor
     alt_ic_isr_register(
@@ -46,23 +108,23 @@ void switch_setup(void) {
     );
 
     // Setup initial switch switch_state
-    switch_state = IORD_ALTERA_AVALON_PIO_DATA(PIO_SW_BASE);
+    switch_state = IORD_ALTERA_AVALON_PIO_DATA(PIO_SW_BASE) & CONTROL_SW_MASK;
 }
 
 static void key_isr(void* context) {
     // Clear the edge capture register
-    IOWR_ALTERA_AVALON_PIO_EDGE_CAP(PIO_PB_BASE, 0x3);
+    IOWR_ALTERA_AVALON_PIO_EDGE_CAP(PIO_PB_BASE, CONTROL_KEY_MASK);
 
     // Updates the key key_state
-    key_state = IORD_ALTERA_AVALON_PIO_DATA(PIO_PB_BASE);
+    key_state = IORD_ALTERA_AVALON_PIO_DATA(PIO_PB_BASE) & CONTROL_KEY_MASK;
 }
 
 void key_setup(void) {
     // Clear pending key triggers
-    IOWR_ALTERA_AVALON_PIO_EDGE_CAP(PIO_PB_BASE, 0x3);
+    IOWR_ALTERA_AVALON_PIO_EDGE_CAP(PIO_PB_BASE, CONTROL_KEY_MASK);
 
     // Enable hardware interrupts
-    IOWR_ALTERA_AVALON_PIO_IRQ_MASK(PIO_PB_BASE, 0x3);
+    IOWR_ALTERA_AVALON_PIO_IRQ_MASK(PIO_PB_BASE, CONTROL_KEY_MASK);
 
     // Register the ISR with the processor
     alt_ic_isr_register(
@@ -74,7 +136,7 @@ void key_setup(void) {
     );
 
     // Setup initial key key_state
-    key_state = IORD_ALTERA_AVALON_PIO_DATA(PIO_PB_BASE);
+    key_state = IORD_ALTERA_AVALON_PIO_DATA(PIO_PB_BASE) & CONTROL_KEY_MASK;
 }
 
 static void img_rx_isr(void* context) {
@@ -131,25 +193,27 @@ void vga_rx_setup(void) {
 
 void handle_key1(void)
 {
-	if ((~key_state) & 0x01)
+    /* Physical KEY0. Published to both IMG and VGA.
+       - Before session start: IMG uses it as session-start.
+       - In Debug panel: IMG uses it as image-capture request. */
+	if ((~key_state) & CONTROL_KEY0_MASK)
 	{
-		IOWR_ALTERA_AVALON_PIO_DATA(CON_IMG_IRQ_TX_BASE, 0x1);
-		IOWR_ALTERA_AVALON_PIO_DATA(CON_IMG_IRQ_TX_BASE, 0x0);
-		GPIO_state = GPIO_state | 0x1;
-		IOWR_ALTERA_AVALON_PIO_DATA(PIO_GPIO_BASE, GPIO_state);
-		key_state = (key_state | 0x01);
+        publish_control_event(CONTROL_EVENT_KEY, CONTROL_KEY0_MASK, CONTROL_KEY0_MASK);
+        notify_img_and_vga_processors();
+		key_state = (key_state | CONTROL_KEY0_MASK) & CONTROL_KEY_MASK;
 	}
 }
 
 void handle_key2(void)
 {
-	if ((~key_state) & 0x02)
+    /* Physical KEY1. Published to both IMG and VGA.
+       - Menu/Snake VGA uses it as the action button.
+       - Debug VGA uses it to accept the latest image as Draw background. */
+	if ((~key_state) & CONTROL_KEY1_MASK)
 	{
-		IOWR_ALTERA_AVALON_PIO_DATA(CON_VGA_IRQ_TX_BASE, 0x1);
-		IOWR_ALTERA_AVALON_PIO_DATA(CON_VGA_IRQ_TX_BASE, 0x0);
-		GPIO_state = GPIO_state | 0x2;
-		IOWR_ALTERA_AVALON_PIO_DATA(PIO_GPIO_BASE, GPIO_state);
-		key_state = (key_state | 0x02);
+        publish_control_event(CONTROL_EVENT_KEY, CONTROL_KEY1_MASK, CONTROL_KEY1_MASK);
+        notify_img_and_vga_processors();
+		key_state = (key_state | CONTROL_KEY1_MASK) & CONTROL_KEY_MASK;
 	}
 }
 

@@ -9,33 +9,45 @@
 #include <unistd.h>
 #include "alt_types.h"
 
+/* accel.c provides these functions; no accel.h exists in the uploaded project. */
+extern int accel_read_x(alt_32 *x);
+extern int accel_read_y(alt_32 *y);
+extern int accel_read_z(alt_32 *z);
+
 /* =========================
-   4-bit VGA colors
+   RGB332 VGA colors
+
+   Use #ifndef so these do not redefine names if vga.h already provides them.
+   Values are direct RGB332 bytes.
    ========================= */
 
-#define COL_BLACK   0x0
-#define COL_DARK    0x1
-
-/*
-   IMPORTANT COLOR NOTE
-   Your VGA hardware uses 4-bit color values, but the high-intensity
-   values 0x9-0xF do not seem to map exactly like the assumed palette.
-
-   From your observation:
-       previous COL_RED   = 0xC -> appears white
-       previous COL_GREEN = 0xA -> appears gray-ish
-       COL_YELLOW         = 0xE -> appears yellow and is known-good
-
-   Therefore gameplay object colors below use the lower indices first.
-   If one color is still wrong, change only SNAKE_COLOR_xxx.
-*/
-#define COL_BLUE    0x1
-#define COL_GREEN   0x2
-#define COL_CYAN    0x3
-#define COL_RED     0x4
-#define COL_PURPLE  0x5
-#define COL_YELLOW  0xE
-#define COL_WHITE   0xF
+#ifndef COL_BLACK
+#define COL_BLACK   0x00
+#endif
+#ifndef COL_DARK
+#define COL_DARK    0x49
+#endif
+#ifndef COL_BLUE
+#define COL_BLUE    0x03
+#endif
+#ifndef COL_GREEN
+#define COL_GREEN   0x1C
+#endif
+#ifndef COL_CYAN
+#define COL_CYAN    0x1F
+#endif
+#ifndef COL_RED
+#define COL_RED     0xE0
+#endif
+#ifndef COL_PURPLE
+#define COL_PURPLE  0xE3
+#endif
+#ifndef COL_YELLOW
+#define COL_YELLOW  0xFC
+#endif
+#ifndef COL_WHITE
+#define COL_WHITE   0xFF
+#endif
 
 /* =========================
    Arena object colors
@@ -64,6 +76,7 @@
 
 #define ACCEL_SNAKE_THRESHOLD 80
 #define SNAKE_STEP_DELAY_US   120000
+#define SNAKE_MAILBOX_SERVICE_SLICE_US 10000
 
 /* =========================
    Shared SDRAM page
@@ -74,6 +87,14 @@
    ========================= */
 
 #define SHARED_FLAGS_BASE              0x05212000
+
+#define FLAG_RT_ACTIVITY_SEQ           0x870
+#define FLAG_RT_PANEL_MODE             0x874
+#define GAME_MODE_SNAKE                1
+
+#define RX_IDLE_COLOR                  0xE0
+#define RX_ACTIVE_COLOR                0x1C
+#define RX_PAUSE_TICKS                 30
 #define SHARED_FLAGS_SIZE              0x1000
 
 /* Snake status region: 0x040 - 0x0FF */
@@ -87,6 +108,7 @@
 #define SNAKE_FLAG_ARENA_DIRTY         0x05C
 #define SNAKE_FLAG_APPLE_X             0x060
 #define SNAKE_FLAG_APPLE_Y             0x064
+#define SNAKE_FLAG_APPLE_COUNT         0x088  /* number of active apples mirrored in SNAKE_SHARED_APPLE_LIST */
 #define SNAKE_FLAG_PORTAL_ENABLED      0x068
 #define SNAKE_FLAG_PORTAL_A_X          0x06C
 #define SNAKE_FLAG_PORTAL_A_Y          0x070
@@ -115,6 +137,10 @@
 #define SNAKE_SHARED_WALL_LIST         0x600
 #define SNAKE_SHARED_WALL_LIST_CAP     256
 
+/* Optional apple coordinate mirror: 0x700 onward, x,y byte pairs */
+#define SNAKE_SHARED_APPLE_LIST        0x700
+#define SNAKE_SHARED_APPLE_LIST_CAP    (MAX_DECODER_APPLES * 2)
+
 #define SNAKE_MAGIC_VALUE              0x534E414B  /* 'SNAK' */
 
 /* Game states written to SNAKE_FLAG_GAME_STATE */
@@ -138,6 +164,8 @@
 #define SNAKE_CMD_SET_PORTALS          4  /* payload: ax,ay,bx,by */
 #define SNAKE_CMD_CLEAR_ARENA          5  /* clears apple/walls/portals */
 #define SNAKE_CMD_CLEAR_WALLS          6  /* clears only walls */
+#define SNAKE_CMD_ADD_APPLES           7  /* payload: x1,y1,x2,y2... keeps old apples */
+#define SNAKE_CMD_CLEAR_CELLS           8  /* payload: x1,y1,x2,y2... clears selected static cells */
 
 #define SNAKE_CMD_STATUS_OK            0
 #define SNAKE_CMD_STATUS_BAD_TYPE      1
@@ -227,6 +255,10 @@ static int ate_food_last_step = 0;
 static int score_draw_needed = 1;
 static int lose_screen_drawn = 0;
 
+static uint32_t snake_rx_last_seq = 0;
+static int snake_rx_pause_ticks = 0;
+static int snake_rx_indicator_state = -1;
+
 /* =========================
    SDRAM helpers
    ========================= */
@@ -293,6 +325,33 @@ static void shared_mirror_full_arena(void)
         shared_write8(SNAKE_SHARED_ARENA_GRID + i, arena_grid[i]);
 }
 
+static void shared_mirror_apple_list(void)
+{
+    int i;
+    int written = 0;
+
+    for (i = 0; i < GRID_W * GRID_H && written < MAX_DECODER_APPLES; i++)
+    {
+        if (arena_grid[i] == SNAKE_CELL_APPLE)
+        {
+            int x = i % GRID_W;
+            int y = i / GRID_W;
+
+            shared_write8(SNAKE_SHARED_APPLE_LIST + written * 2, (uint8_t)x);
+            shared_write8(SNAKE_SHARED_APPLE_LIST + written * 2 + 1, (uint8_t)y);
+            written++;
+        }
+    }
+
+    shared_write32(SNAKE_FLAG_APPLE_COUNT, (uint32_t)written);
+
+    for (; written < MAX_DECODER_APPLES; written++)
+    {
+        shared_write8(SNAKE_SHARED_APPLE_LIST + written * 2, 0xFFu);
+        shared_write8(SNAKE_SHARED_APPLE_LIST + written * 2 + 1, 0xFFu);
+    }
+}
+
 static void shared_set_event(uint32_t event_mask)
 {
     snake_event_flags |= event_mask;
@@ -325,6 +384,8 @@ static void shared_publish_status(void)
         shared_write32(SNAKE_FLAG_APPLE_X, 0xFFFFFFFFu);
         shared_write32(SNAKE_FLAG_APPLE_Y, 0xFFFFFFFFu);
     }
+
+    shared_mirror_apple_list();
 
     shared_write32(SNAKE_FLAG_PORTAL_ENABLED, (uint32_t)portal_enabled);
     shared_write32(SNAKE_FLAG_PORTAL_A_X, portal_enabled ? (uint32_t)portal_a.x : 0xFFFFFFFFu);
@@ -461,6 +522,42 @@ static void draw_border(void)
     vga_draw_rectangle(x + w - 2, y, 2, h, COL_CYAN);
 }
 
+static void snake_draw_rx_indicator(int active)
+{
+    int color = active ? RX_ACTIVE_COLOR : RX_IDLE_COLOR;
+
+    vga_draw_rectangle(12, 10, 42, 14, COL_BLACK);
+    vga_draw_circle(18, 17, 4, color);
+    vga_print_software_text(26, 12, active ? "RX" : "ID", active ? RX_ACTIVE_COLOR : RX_IDLE_COLOR);
+}
+
+static int snake_update_rx_status(void)
+{
+    uint32_t seq = shared_read32(FLAG_RT_ACTIVITY_SEQ);
+    uint32_t panel = shared_read32(FLAG_RT_PANEL_MODE);
+    int active;
+
+    if (panel == GAME_MODE_SNAKE && seq != snake_rx_last_seq)
+    {
+        snake_rx_last_seq = seq;
+        snake_rx_pause_ticks = RX_PAUSE_TICKS;
+    }
+    else if (snake_rx_pause_ticks > 0)
+    {
+        snake_rx_pause_ticks--;
+    }
+
+    active = (snake_rx_pause_ticks > 0);
+
+    if (active != snake_rx_indicator_state)
+    {
+        snake_rx_indicator_state = active;
+        snake_draw_rx_indicator(active);
+    }
+
+    return active;
+}
+
 static void draw_score(void)
 {
     char score_text[32];
@@ -475,10 +572,12 @@ static void draw_score(void)
 static void draw_hud(void)
 {
     vga_print_software_text(68, 12, "RETRO SNAKE", COL_GREEN);
+    snake_rx_indicator_state = -1;
+    snake_draw_rx_indicator(0);
     draw_score();
 
     vga_print_software_text(32, 224, "TILT TO MOVE", COL_CYAN);
-    vga_print_software_text(184, 224, "BTN EXIT", COL_RED);
+    vga_print_software_text(184, 224, "SW9 MENU", COL_RED);
 }
 
 static void draw_snake_full(void)
@@ -554,8 +653,8 @@ static void draw_lose_screen(void)
     sprintf(score_text, "FINAL SCORE %d", score);
     vga_print_software_text(76, 92, score_text, COL_YELLOW);
 
-    vga_print_software_text(48, 142, "PRESS BUTTON TO RETRY", COL_GREEN);
-    vga_print_software_text(84, 166, "BTN DURING GAME EXIT", COL_CYAN);
+    vga_print_software_text(52, 142, "KEY1 RETRY", COL_GREEN);
+    vga_print_software_text(54, 166, "SW9 BACK TO MENU", COL_CYAN);
 }
 
 static void clear_all_static_arena(void)
@@ -745,6 +844,7 @@ static void spawn_food(void)
 
     shared_write32(SNAKE_FLAG_APPLE_X, (uint32_t)food.x);
     shared_write32(SNAKE_FLAG_APPLE_Y, (uint32_t)food.y);
+    shared_mirror_apple_list();
 }
 
 /* =========================
@@ -759,12 +859,53 @@ static void set_command_status(uint32_t status)
         shared_set_event(SNAKE_EVENT_BAD_COMMAND);
 }
 
-static int read_payload_xy(uint32_t payload_offset, uint32_t index, int *x, int *y)
+static int read_payload_xy(uint32_t payload_offset, uint32_t payload_len,
+                           uint32_t count, uint32_t index, int *x, int *y)
 {
-    *x = (int)shared_read8(payload_offset + index * 2);
-    *y = (int)shared_read8(payload_offset + index * 2 + 1);
+    /*
+       New realtime IMG decoder writes mailbox payload through 32-bit Avalon
+       direct registers so coordinates are coherent between IMG and VGA CPUs:
+           coordinate i: x at payload + i*8, y at payload + i*8 + 4
+
+       Keep the old byte payload fallback so older IMG code still works.
+    */
+    if (count > 0 && payload_len >= count * 8)
+    {
+        *x = (int)shared_read32(payload_offset + index * 8);
+        *y = (int)shared_read32(payload_offset + index * 8 + 4);
+    }
+    else
+    {
+        *x = (int)shared_read8(payload_offset + index * 2);
+        *y = (int)shared_read8(payload_offset + index * 2 + 1);
+    }
 
     return valid_cell(*x, *y);
+}
+
+static int read_payload_portals(uint32_t payload_offset, uint32_t payload_len,
+                                int *ax, int *ay, int *bx, int *by)
+{
+    if (payload_len >= 16)
+    {
+        *ax = (int)shared_read32(payload_offset + 0);
+        *ay = (int)shared_read32(payload_offset + 4);
+        *bx = (int)shared_read32(payload_offset + 8);
+        *by = (int)shared_read32(payload_offset + 12);
+    }
+    else if (payload_len >= 4)
+    {
+        *ax = (int)shared_read8(payload_offset + 0);
+        *ay = (int)shared_read8(payload_offset + 1);
+        *bx = (int)shared_read8(payload_offset + 2);
+        *by = (int)shared_read8(payload_offset + 3);
+    }
+    else
+    {
+        return 0;
+    }
+
+    return valid_cell(*ax, *ay) && valid_cell(*bx, *by);
 }
 
 static void remove_old_apple(void)
@@ -829,9 +970,10 @@ static void clear_walls_only(void)
     wall_count = 0;
 }
 
-static void apply_set_apple(uint32_t count, uint32_t payload_len)
+static void apply_apples(uint32_t count, uint32_t payload_len, int replace_old_apples)
 {
     uint32_t i;
+    int placed_any = 0;
 
     if (payload_len < 2)
     {
@@ -840,7 +982,12 @@ static void apply_set_apple(uint32_t count, uint32_t payload_len)
     }
 
     if (count == 0)
-        count = payload_len / 2;
+    {
+        if ((payload_len % 8) == 0 && payload_len >= 8)
+            count = payload_len / 8;
+        else
+            count = payload_len / 2;
+    }
 
     if (payload_len < count * 2)
     {
@@ -851,8 +998,11 @@ static void apply_set_apple(uint32_t count, uint32_t payload_len)
     if (count > MAX_DECODER_APPLES)
         count = MAX_DECODER_APPLES;
 
-    remove_old_apple();
-    decoder_apples_clear();
+    if (replace_old_apples)
+    {
+        remove_old_apple();
+        decoder_apples_clear();
+    }
 
     for (i = 0; i < count; i++)
     {
@@ -860,7 +1010,7 @@ static void apply_set_apple(uint32_t count, uint32_t payload_len)
         int y;
         uint8_t old_value;
 
-        if (!read_payload_xy(SNAKE_MB_PAYLOAD, i, &x, &y))
+        if (!read_payload_xy(SNAKE_MB_PAYLOAD, payload_len, count, i, &x, &y))
         {
             set_command_status(SNAKE_CMD_STATUS_BAD_COORD);
             continue;
@@ -868,25 +1018,59 @@ static void apply_set_apple(uint32_t count, uint32_t payload_len)
 
         old_value = arena_grid[grid_index(x, y)];
 
-        if (old_value == SNAKE_CELL_WALL && wall_count > 0)
-            wall_count--;
-
-        if (old_value == SNAKE_CELL_PORTAL_A || old_value == SNAKE_CELL_PORTAL_B)
+        /* If this apple position is already an apple, keep it and avoid duplicate count/list entries. */
+        if (old_value == SNAKE_CELL_APPLE)
         {
-            portal_enabled = 0;
-            decoder_portal_enabled = 0;
-            decoder_config_remove_type(SNAKE_CELL_PORTAL_A);
-            decoder_config_remove_type(SNAKE_CELL_PORTAL_B);
+            placed_any = 1;
+            continue;
+        }
+
+        /*
+           Do not let decoder apples replace walls or portals.
+
+           The image decoder can receive apple and wall streams close together.
+           If a noisy/partial apple coordinate lands on an existing wall cell,
+           the old behavior changed that wall into an apple. That made VGA look
+           like walls and apples were randomly replacing each other.
+
+           Arena static objects are one cell value only, so conflicts must be
+           resolved here. Current rule: first static object wins; overlapping
+           apple requests are ignored.
+        */
+        if (old_value == SNAKE_CELL_WALL ||
+            old_value == SNAKE_CELL_PORTAL_A ||
+            old_value == SNAKE_CELL_PORTAL_B)
+        {
+            placed_any = 1;
+            continue;
         }
 
         arena_set_cell(x, y, SNAKE_CELL_APPLE);
         draw_static_cell_if_visible(x, y);
 
         decoder_apples_add(x, y);
+        placed_any = 1;
     }
 
     active_apples_resync_first();
-    set_command_status(SNAKE_CMD_STATUS_OK);
+    shared_mirror_apple_list();
+
+    if (placed_any)
+        set_command_status(SNAKE_CMD_STATUS_OK);
+    else
+        set_command_status(SNAKE_CMD_STATUS_BAD_COORD);
+}
+
+static void apply_set_apple(uint32_t count, uint32_t payload_len)
+{
+    /* Replace all previous decoder apples with the mailbox apple list. */
+    apply_apples(count, payload_len, 1);
+}
+
+static void apply_add_apples(uint32_t count, uint32_t payload_len)
+{
+    /* Add mailbox apple positions while keeping existing apples. */
+    apply_apples(count, payload_len, 0);
 }
 
 static void apply_walls(uint32_t count, uint32_t payload_len, int replace_old_walls)
@@ -916,7 +1100,7 @@ static void apply_walls(uint32_t count, uint32_t payload_len, int replace_old_wa
         int y;
         uint8_t old_value;
 
-        if (!read_payload_xy(SNAKE_MB_PAYLOAD, i, &x, &y))
+        if (!read_payload_xy(SNAKE_MB_PAYLOAD, payload_len, count, i, &x, &y))
         {
             set_command_status(SNAKE_CMD_STATUS_BAD_COORD);
             continue;
@@ -927,36 +1111,36 @@ static void apply_walls(uint32_t count, uint32_t payload_len, int replace_old_wa
         if (old_value == SNAKE_CELL_WALL)
             continue;
 
-        if (old_value == SNAKE_CELL_APPLE)
-        {
-            /* This apple is being replaced by a wall.
-               Resync the active apple metadata after the grid update. */
-        }
+        /*
+           Do not let decoder walls replace apples or portals.
 
-        if (old_value == SNAKE_CELL_PORTAL_A || old_value == SNAKE_CELL_PORTAL_B)
-            portal_enabled = 0;
+           This is the matching protection for apply_apples(). If apple and wall
+           commands overlap or arrive in a noisy order, the later command must
+           not visually convert the previous object type. Current rule: first
+           static object wins; overlapping wall requests are ignored.
+        */
+        if (old_value == SNAKE_CELL_APPLE ||
+            old_value == SNAKE_CELL_PORTAL_A ||
+            old_value == SNAKE_CELL_PORTAL_B)
+        {
+            continue;
+        }
 
         arena_set_cell(x, y, SNAKE_CELL_WALL);
         wall_count++;
 
-        /* Persist decoder walls across snake retry/reset. */
-        if (decoder_arena_grid[grid_index(x, y)] == SNAKE_CELL_APPLE)
-            decoder_apples_clear();
-
-        if (decoder_arena_grid[grid_index(x, y)] == SNAKE_CELL_PORTAL_A ||
-            decoder_arena_grid[grid_index(x, y)] == SNAKE_CELL_PORTAL_B)
-        {
-            decoder_portal_enabled = 0;
-            decoder_config_remove_type(SNAKE_CELL_PORTAL_A);
-            decoder_config_remove_type(SNAKE_CELL_PORTAL_B);
-        }
-
+        /* Persist decoder walls across snake retry/reset.
+           Since conflicts were skipped above, this will not erase apples or
+           portals from decoder_arena_grid. */
         decoder_config_set_cell(x, y, SNAKE_CELL_WALL);
 
         shared_write8(SNAKE_SHARED_WALL_LIST + (i * 2), (uint8_t)x);
         shared_write8(SNAKE_SHARED_WALL_LIST + (i * 2 + 1), (uint8_t)y);
 
         draw_static_cell_if_visible(x, y);
+
+        printf("[SNAKE MB] wall applied x=%d y=%d wall_count=%d\n", x, y, wall_count);
+        fflush(stdout);
     }
 
     active_apples_resync_first();
@@ -972,20 +1156,12 @@ static void apply_set_portals(uint32_t payload_len)
     uint8_t old_a;
     uint8_t old_b;
 
-    if (payload_len < 4)
+    if (!read_payload_portals(SNAKE_MB_PAYLOAD, payload_len, &ax, &ay, &bx, &by))
     {
-        set_command_status(SNAKE_CMD_STATUS_BAD_LENGTH);
-        return;
-    }
-
-    ax = (int)shared_read8(SNAKE_MB_PAYLOAD + 0);
-    ay = (int)shared_read8(SNAKE_MB_PAYLOAD + 1);
-    bx = (int)shared_read8(SNAKE_MB_PAYLOAD + 2);
-    by = (int)shared_read8(SNAKE_MB_PAYLOAD + 3);
-
-    if (!valid_cell(ax, ay) || !valid_cell(bx, by))
-    {
-        set_command_status(SNAKE_CMD_STATUS_BAD_COORD);
+        if (payload_len < 4)
+            set_command_status(SNAKE_CMD_STATUS_BAD_LENGTH);
+        else
+            set_command_status(SNAKE_CMD_STATUS_BAD_COORD);
         return;
     }
 
@@ -1035,6 +1211,61 @@ static void apply_set_portals(uint32_t payload_len)
     set_command_status(SNAKE_CMD_STATUS_OK);
 }
 
+
+static void apply_clear_cells(uint32_t count, uint32_t payload_len)
+{
+    uint32_t i;
+
+    if (count == 0)
+    {
+        if ((payload_len % 8) == 0 && payload_len >= 8)
+            count = payload_len / 8;
+        else
+            count = payload_len / 2;
+    }
+
+    if (payload_len < count * 2)
+    {
+        set_command_status(SNAKE_CMD_STATUS_BAD_LENGTH);
+        return;
+    }
+
+    for (i = 0; i < count; i++)
+    {
+        int x;
+        int y;
+        uint8_t old_value;
+
+        if (!read_payload_xy(SNAKE_MB_PAYLOAD, payload_len, count, i, &x, &y))
+        {
+            set_command_status(SNAKE_CMD_STATUS_BAD_COORD);
+            continue;
+        }
+
+        old_value = arena_grid[grid_index(x, y)];
+
+        if (old_value == SNAKE_CELL_WALL && wall_count > 0)
+            wall_count--;
+
+        if (old_value == SNAKE_CELL_PORTAL_A || old_value == SNAKE_CELL_PORTAL_B)
+        {
+            remove_old_portals();
+            decoder_config_remove_type(SNAKE_CELL_PORTAL_A);
+            decoder_config_remove_type(SNAKE_CELL_PORTAL_B);
+            decoder_portal_enabled = 0;
+        }
+        else
+        {
+            arena_set_cell(x, y, SNAKE_CELL_EMPTY);
+            decoder_config_set_cell(x, y, SNAKE_CELL_EMPTY);
+            draw_static_cell_if_visible(x, y);
+        }
+    }
+
+    active_apples_resync_first();
+    set_command_status(SNAKE_CMD_STATUS_OK);
+}
+
 static void apply_mailbox_command(uint32_t cmd_type, uint32_t count, uint32_t payload_len)
 {
     if (payload_len > SNAKE_MB_PAYLOAD_CAP)
@@ -1046,6 +1277,10 @@ static void apply_mailbox_command(uint32_t cmd_type, uint32_t count, uint32_t pa
     if (cmd_type == SNAKE_CMD_SET_APPLE)
     {
         apply_set_apple(count, payload_len);
+    }
+    else if (cmd_type == SNAKE_CMD_ADD_APPLES)
+    {
+        apply_add_apples(count, payload_len);
     }
     else if (cmd_type == SNAKE_CMD_SET_WALLS)
     {
@@ -1070,6 +1305,10 @@ static void apply_mailbox_command(uint32_t cmd_type, uint32_t count, uint32_t pa
         clear_walls_only();
         decoder_config_remove_type(SNAKE_CELL_WALL);
         set_command_status(SNAKE_CMD_STATUS_OK);
+    }
+    else if (cmd_type == SNAKE_CMD_CLEAR_CELLS)
+    {
+        apply_clear_cells(count, payload_len);
     }
     else
     {
@@ -1291,6 +1530,7 @@ static void snake_step(void)
     if (ate_food_last_step)
     {
         active_apples_resync_first();
+        shared_mirror_apple_list();
 
         /* If the decoder placed multiple apples, do not spawn a random
            replacement until all active apples have been eaten. */
@@ -1347,17 +1587,40 @@ void snake_init(void)
         spawn_food();
 
     last_seen_mailbox_seq = 0;
+    snake_rx_last_seq = shared_read32(FLAG_RT_ACTIVITY_SEQ);
+    snake_rx_pause_ticks = 0;
+    snake_rx_indicator_state = -1;
     shared_init_snake_page();
 
     printf("Snake game start\n");
     printf("Snake SDRAM mailbox active at 0x%08X\n", SHARED_FLAGS_BASE);
     printf("Boundary mode = wrap around arena edges\n");
     printf("Lose condition = hit snake body or custom wall\n");
+    printf("Mailbox apples: SET_APPLE replaces list, ADD_APPLES appends list\n");
     printf("Button during game = exit\n");
     printf("Button after lose = retry\n");
     fflush(stdout);
 
     draw_game_screen_incremental();
+}
+
+static void snake_service_mailbox_delay(unsigned int total_delay_us)
+{
+    unsigned int elapsed = 0;
+
+    while (elapsed < total_delay_us)
+    {
+        unsigned int slice = SNAKE_MAILBOX_SERVICE_SLICE_US;
+
+        if (elapsed + slice > total_delay_us)
+            slice = total_delay_us - elapsed;
+
+        snake_check_mailbox();
+        usleep(slice);
+        elapsed += slice;
+    }
+
+    snake_check_mailbox();
 }
 
 void snake_update(void)
@@ -1379,6 +1642,18 @@ void snake_update(void)
         return;
     }
 
+    if (snake_update_rx_status())
+    {
+        /*
+           Keep servicing mailbox / drawing RX green, but pause snake movement
+           until incoming realtime instructions settle. This prevents the snake
+           from moving into a half-updated wall/apple/portal map.
+        */
+        snake_check_mailbox();
+        usleep(20000);
+        return;
+    }
+
     read_snake_direction();
     snake_step();
 
@@ -1393,7 +1668,12 @@ void snake_update(void)
     }
 
     snake_check_mailbox();
-    usleep(SNAKE_STEP_DELAY_US);
+    snake_service_mailbox_delay(SNAKE_STEP_DELAY_US);
+}
+
+int snake_is_lost(void)
+{
+    return snake_lost != 0;
 }
 
 int snake_handle_button(void)

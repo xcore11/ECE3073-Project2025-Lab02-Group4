@@ -3,6 +3,7 @@
 
 void snake_init(void);
 void snake_update(void);
+int snake_is_lost(void);
 
 /*
    Returns 1 when the snake screen should exit back to main menu.

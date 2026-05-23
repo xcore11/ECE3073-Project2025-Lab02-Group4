@@ -222,8 +222,8 @@ refer to the applicable agreement for further details.
 	(port
 		(pt 0 888)
 		(output)
-		(text "pixeldata_export[3..0]" (rect 0 0 83 12)(font "Arial" (font_size 8)))
-		(text "pixeldata_export[3..0]" (rect 4 877 136 888)(font "Arial" (font_size 8)))
+		(text "pixeldata_export[7..0]" (rect 0 0 83 12)(font "Arial" (font_size 8)))
+		(text "pixeldata_export[7..0]" (rect 4 877 136 888)(font "Arial" (font_size 8)))
 		(line (pt 0 888)(pt 144 888)(line_width 3))
 	)
 	(port
