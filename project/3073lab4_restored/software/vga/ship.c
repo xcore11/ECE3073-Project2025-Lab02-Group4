@@ -245,6 +245,20 @@ static void mark_all_cells_dirty(void)
     board_dirty = 1;
 }
 
+static void show_fleet_down_popup_once(void)
+{
+    /*
+       Keep the end screen stable: do not force a full-screen redraw here.
+       The normal dirty-cell path restores the final hit cells/HUD first, then
+       draws the modal popup once on top.
+    */
+    if (!fleet_popup_visible)
+        fleet_popup_drawn = 0;
+
+    fleet_popup_visible = 1;
+    hud_dirty = 1;
+}
+
 static void recalc_ship_counts(void)
 {
     int x;
@@ -270,11 +284,7 @@ static void recalc_ship_counts(void)
     layout_loaded = (total > 0);
 
     if (layout_loaded && destroyed_ship_cells >= loaded_ship_cells && !fleet_popup_dismissed)
-    {
-        fleet_popup_visible = 1;
-        fleet_popup_drawn = 0;
-        full_redraw_needed = 1;
-    }
+        show_fleet_down_popup_once();
 
     hud_dirty = 1;
 }
@@ -620,7 +630,7 @@ static void draw_fleet_down_popup(void)
 
     vga_print_software_text(86, 88, "FLEET DOWN!", COL_YELLOW);
     vga_print_software_text(64, 110, "SW8 CONTINUE", COL_GREEN);
-    vga_print_software_text(64, 126, "KEY1 REVEAL", COL_CYAN);
+    vga_print_software_text(64, 126, "KEYS LOCKED", COL_CYAN);
     vga_print_software_text(64, 142, "SW9 MENU", COL_WHITE);
 }
 
@@ -628,6 +638,10 @@ static void redraw_dirty_cells_and_overlays(void)
 {
     int x;
     int y;
+    int popup_needs_redraw;
+
+    popup_needs_redraw = fleet_popup_visible &&
+                         (!fleet_popup_drawn || full_redraw_needed || board_dirty || hud_dirty);
 
     if (full_redraw_needed)
     {
@@ -660,7 +674,7 @@ static void redraw_dirty_cells_and_overlays(void)
         hud_dirty = 0;
     }
 
-    if (fleet_popup_visible && !fleet_popup_drawn)
+    if (fleet_popup_visible && popup_needs_redraw)
     {
         draw_fleet_down_popup();
         fleet_popup_drawn = 1;
@@ -714,14 +728,11 @@ static void apply_hit_to_cell(int gx, int gy, int blast_kind)
             if (layout_loaded && destroyed_ship_cells >= loaded_ship_cells && !fleet_popup_dismissed)
             {
                 /*
-                   Fleet-down screen is modal. Stop blast animation and force
-                   one clean redraw so the popup does not flicker.
+                   Fleet-down screen is modal. Stop blast animation and draw
+                   the popup once without clearing/repainting the whole screen.
                 */
                 memset(blasts, 0, sizeof(blasts));
-                fleet_popup_visible = 1;
-                fleet_popup_drawn = 0;
-                full_redraw_needed = 1;
-                mark_all_cells_dirty();
+                show_fleet_down_popup_once();
             }
 
             hud_dirty = 1;
@@ -1115,10 +1126,11 @@ void ship_game_handle_control_event(uint32_t key_mask,
     (void)event_type;
 
     /*
-       Fleet-down popup is modal.
+       Fleet-down popup is modal and stable.
        SW8 = continue viewing board.
        SW9 = global menu escape handled in main.c.
-       KEY1 remains moderator reveal, but it does not dismiss the popup.
+       KEY0/KEY1 and other switches are ignored here so they cannot dirty the
+       board behind the popup and cause a visible refresh/flicker.
     */
     if (fleet_popup_visible)
     {
@@ -1131,13 +1143,11 @@ void ship_game_handle_control_event(uint32_t key_mask,
             fleet_popup_drawn = 0;
             fleet_popup_dismissed = 1;
 
+            /* Removing the modal requires restoring the board underneath once. */
             full_redraw_needed = 1;
             mark_all_cells_dirty();
             hud_dirty = 1;
         }
-
-        if (key_mask & CONTROL_KEY1_MASK)
-            toggle_moderator_reveal();
 
         last_switch_state = switch_state;
         return;

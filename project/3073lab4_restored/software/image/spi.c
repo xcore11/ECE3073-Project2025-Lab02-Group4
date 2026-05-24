@@ -132,11 +132,16 @@ static void sdram_store_text_from_packet(uint32_t text_src_offset, uint16_t text
     for (i = 0; i < text_len; i++) {
         char c = (char)sdram_read_packet_byte(text_src_offset + i);
 
-        /* Store display-safe text only. */
-        if (c == '\0' || c == '\r' || c == '\n' || c == '\t') {
+        /*
+           Store display-safe text, but preserve row boundaries.
+           Debug VGA uses '\n' to split fixed text rows, so do not
+           flatten newline into a space here.
+        */
+        if (c == '\r') {
+            c = '\n';
+        } else if (c == '\0' || c == '\t') {
             c = ' ';
-        }
-        if (c < 32 || c > 126) {
+        } else if (c != '\n' && (c < 32 || c > 126)) {
             c = ' ';
         }
 
