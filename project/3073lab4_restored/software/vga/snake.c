@@ -109,6 +109,11 @@ extern int accel_read_z(alt_32 *z);
 #define SNAKE_FLAG_APPLE_X             0x060
 #define SNAKE_FLAG_APPLE_Y             0x064
 #define SNAKE_FLAG_APPLE_COUNT         0x088  /* number of active apples mirrored in SNAKE_SHARED_APPLE_LIST */
+
+/* One-shot SFX flags consumed and cleared by the Control processor. */
+#define FLAG_SFX_EAT_APPLE             0x090
+#define FLAG_SFX_GAME_OVER             0x094
+#define FLAG_SFX_PORTAL                0x098
 #define SNAKE_FLAG_PORTAL_ENABLED      0x068
 #define SNAKE_FLAG_PORTAL_A_X          0x06C
 #define SNAKE_FLAG_PORTAL_A_Y          0x070
@@ -266,6 +271,11 @@ static int snake_rx_indicator_state = -1;
 static void shared_write32(uint32_t offset, uint32_t value)
 {
     IOWR_32DIRECT(SHARED_FLAGS_BASE, offset, value);
+}
+
+static void trigger_sfx_flag(uint32_t offset)
+{
+    IOWR_32DIRECT(SHARED_FLAGS_BASE, offset, 1);
 }
 
 static uint32_t shared_read32(uint32_t offset)
@@ -1402,6 +1412,7 @@ static void set_lost(uint32_t reason_event)
     snake_lost = 1;
     lose_screen_drawn = 0;
     shared_set_event(reason_event | SNAKE_EVENT_LOST);
+    trigger_sfx_flag(FLAG_SFX_GAME_OVER);
     shared_publish_status();
 }
 
@@ -1415,12 +1426,14 @@ static void apply_portal_if_needed(SnakeCell *cell)
         cell->x = portal_b.x;
         cell->y = portal_b.y;
         shared_set_event(SNAKE_EVENT_USED_PORTAL);
+        trigger_sfx_flag(FLAG_SFX_PORTAL);
     }
     else if (cell->x == portal_b.x && cell->y == portal_b.y)
     {
         cell->x = portal_a.x;
         cell->y = portal_a.y;
         shared_set_event(SNAKE_EVENT_USED_PORTAL);
+        trigger_sfx_flag(FLAG_SFX_PORTAL);
     }
 }
 
@@ -1507,6 +1520,7 @@ static void snake_step(void)
         ate_food_last_step = 1;
         score++;
         shared_set_event(SNAKE_EVENT_ATE_APPLE);
+        trigger_sfx_flag(FLAG_SFX_EAT_APPLE);
 
         /* Remove only the eaten active apple. Decoder apple config is kept,
            so all decoder apples return after retry/reset. */

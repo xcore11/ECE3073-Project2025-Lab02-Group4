@@ -10,6 +10,7 @@
 
 #include "spi.h"
 #include "decoder.h"
+#include "decoderdebug.h"
 #include "shared_memory.h"
 
 /* ============================================================
@@ -303,18 +304,35 @@ static int read_one_esp_packet(void)
     printf("SPI packet_len=%lu, text=[%s]\n", (unsigned long)packet_len, rx_text);
     fflush(stdout);
 
-    decoder_result = decoder_decode_and_store_panel_text_batch((int)current_panel_mode,
-                                                         rx_text,
-                                                         (unsigned int)strlen(rx_text));
-    print_decoder_result(decoder_result);
-
-    /*
-       If the stream is malformed, reset decoder so the next SNAKE header can
-       recover cleanly instead of staying poisoned forever.
-    */
-    if (decoder_result < 0 && decoder_result != DECODER_ERR_MAILBOX_BUSY)
+    if (current_panel_mode == GAME_MODE_DEBUG)
     {
-        decoder_reset_stream();
+        decoder_result = decoder_debug_decode_text(rx_text,
+                                                   (unsigned int)strlen(rx_text));
+        if (decoder_result == DEBUG_DECODER_PUBLISHED)
+        {
+            printf("Debug decoder: control command published to 0x06000000 mailbox\n");
+        }
+        else
+        {
+            printf("Debug decoder: no completed debug command yet\n");
+        }
+        fflush(stdout);
+    }
+    else
+    {
+        decoder_result = decoder_decode_and_store_panel_text_batch((int)current_panel_mode,
+                                                             rx_text,
+                                                             (unsigned int)strlen(rx_text));
+        print_decoder_result(decoder_result);
+
+        /*
+           If the stream is malformed, reset decoder so the next realtime header can
+           recover cleanly instead of staying poisoned forever.
+        */
+        if (decoder_result < 0 && decoder_result != DECODER_ERR_MAILBOX_BUSY)
+        {
+            decoder_reset_stream();
+        }
     }
 
     img_irq_tx_set_true();
@@ -337,6 +355,7 @@ int main(void)
     spi_init_manual();
     img_irq_tx_set_false();
     decoder_reset_stream();
+    decoder_debug_reset();
     shared_write_u32(FLAG_IMAGE_PROCESSOR_READY, 1);
 
     session_button_setup();

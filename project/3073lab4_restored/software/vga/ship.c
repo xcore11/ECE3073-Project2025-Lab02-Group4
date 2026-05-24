@@ -54,6 +54,12 @@ extern int accel_read_z(alt_32 *z);
    ========================= */
 #define SHARED_FLAGS_BASE        0x05212000
 
+/* One-shot SFX flags consumed and cleared by the Control processor. */
+#define FLAG_SFX_GAME_OVER       0x094
+#define FLAG_SFX_BATTLE_HIT      0x09C
+#define FLAG_SFX_BATTLE_MISS     0x0A0
+#define FLAG_SFX_CHANGE_ARSENAL  0x0A4
+
 #define FLAG_RT_ACTIVITY_SEQ     0x870
 #define FLAG_RT_PANEL_MODE       0x874
 #define GAME_MODE_BATTLE         4
@@ -167,6 +173,7 @@ static int reveal_anim_active = 0;
 static int reveal_columns = 0;
 
 static int selected_bomb = BOMB_STANDARD;
+static int shot_hit_this_fire = 0;
 static int cross_bombs_left = CROSS_BOMB_MAX;
 static int square_bombs_left = SQUARE_BOMB_MAX;
 
@@ -188,6 +195,11 @@ static int board_dirty = 1;
 /* =========================
    SDRAM helpers
    ========================= */
+static void trigger_sfx_flag(uint32_t offset)
+{
+    IOWR_32DIRECT(SHARED_FLAGS_BASE, offset, 1);
+}
+
 static uint32_t shared_read32(uint32_t offset)
 {
     return IORD_32DIRECT(SHARED_FLAGS_BASE, offset);
@@ -723,6 +735,7 @@ static void apply_hit_to_cell(int gx, int gy, int blast_kind)
         if (shot_map[gy][gx] != SHOT_HIT)
         {
             shot_map[gy][gx] = SHOT_HIT;
+            shot_hit_this_fire = 1;
             destroyed_ship_cells++;
 
             if (layout_loaded && destroyed_ship_cells >= loaded_ship_cells && !fleet_popup_dismissed)
@@ -732,6 +745,7 @@ static void apply_hit_to_cell(int gx, int gy, int blast_kind)
                    the popup once without clearing/repainting the whole screen.
                 */
                 memset(blasts, 0, sizeof(blasts));
+                trigger_sfx_flag(FLAG_SFX_GAME_OVER);
                 show_fleet_down_popup_once();
             }
 
@@ -774,6 +788,7 @@ static void fire_square(void)
 
 static void fire_selected_bomb(void)
 {
+    shot_hit_this_fire = 0;
     if (!layout_loaded)
     {
         printf("[BATTLE] KEY0 ignored, no ship layout loaded\n");
@@ -809,6 +824,8 @@ static void fire_selected_bomb(void)
     {
         fire_standard();
     }
+
+    trigger_sfx_flag(shot_hit_this_fire ? FLAG_SFX_BATTLE_HIT : FLAG_SFX_BATTLE_MISS);
 
     printf("[BATTLE] fired mode=%d x=%d y=%d hit=%d/%d\n",
            selected_bomb, cursor_x, cursor_y,
@@ -1113,7 +1130,10 @@ static void choose_bomb_from_switches(uint32_t switch_state)
         selected_bomb = BOMB_STANDARD;
 
     if (old_bomb != selected_bomb)
+    {
         hud_dirty = 1;
+        trigger_sfx_flag(FLAG_SFX_CHANGE_ARSENAL);
+    }
 }
 
 void ship_game_handle_control_event(uint32_t key_mask,

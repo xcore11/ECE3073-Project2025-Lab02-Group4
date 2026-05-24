@@ -236,6 +236,22 @@ const char *panelModeName(int mode)
 #define LINE_Y_THRESHOLD 6
 
 /*
+   Space inference inside one OCR row.
+
+   Grove AI only gives detected character boxes; it does not output a real
+   "space" character. When two neighbouring character boxes have a much larger
+   x gap than normal, insert one ASCII space into row.rawText.
+
+   Example:
+       h e x   3 0 7  ->  "hex 307"
+
+   Tune SPACE_GAP_MIN_PIXELS if your camera scale changes.
+*/
+#define ENABLE_OCR_SPACE_INFERENCE 1
+#define SPACE_GAP_MIN_PIXELS 34
+#define SPACE_GAP_RATIO_PERCENT 165
+
+/*
    Y-only tracker matching threshold.
    This is only used if same-text matching fails.
 */
@@ -404,6 +420,8 @@ struct RecentSentRow {
 void sortByY(struct CharBox arr[], int n);
 void sortByX(struct CharBox arr[], int start, int end);
 void sortDetectedRowsByY(struct DetectedRow arr[], int n);
+int estimateNormalXStepForRow(struct CharBox arr[], int start, int end);
+bool shouldInsertOcrSpaceBetweenBoxes(struct CharBox prevBox, struct CharBox currentBox, int normalStep);
 String buildSlottedTextFromRow(struct DetectedRow *row);
 bool tryUseRowAsCalibration(struct DetectedRow row);
 int extractDetectedRows(struct DetectedRow detectedRows[], int maxRowsOut);
@@ -1146,6 +1164,81 @@ void sortDetectedRowsByY(struct DetectedRow arr[], int n)
     }
 }
 
+int estimateNormalXStepForRow(struct CharBox arr[], int start, int end)
+{
+    /*
+       Estimate the normal character-to-character x step for this row.
+       The row is already sorted by x before this is called.
+
+       We use the median adjacent x distance so one large word-space gap does
+       not distort the normal character spacing.
+    */
+    int gapCount = end - start - 1;
+
+    if (gapCount <= 0) {
+        return 0;
+    }
+
+    int gaps[MAX_CHARS_PER_LINE];
+
+    if (gapCount > MAX_CHARS_PER_LINE) {
+        gapCount = MAX_CHARS_PER_LINE;
+    }
+
+    for (int i = 0; i < gapCount; i++) {
+        int leftIndex = start + i;
+        int rightIndex = leftIndex + 1;
+        int gap = abs(arr[rightIndex].x - arr[leftIndex].x);
+
+        gaps[i] = gap;
+    }
+
+    for (int i = 0; i < gapCount - 1; i++) {
+        for (int j = i + 1; j < gapCount; j++) {
+            if (gaps[j] < gaps[i]) {
+                int temp = gaps[i];
+                gaps[i] = gaps[j];
+                gaps[j] = temp;
+            }
+        }
+    }
+
+    return gaps[gapCount / 2];
+}
+
+bool shouldInsertOcrSpaceBetweenBoxes(struct CharBox prevBox, struct CharBox currentBox, int normalStep)
+{
+#if ENABLE_OCR_SPACE_INFERENCE
+    int xStep = currentBox.x - prevBox.x;
+
+    if (xStep < 0) {
+        xStep = -xStep;
+    }
+
+    int threshold = SPACE_GAP_MIN_PIXELS;
+
+    /*
+       If the row has enough characters to estimate normal spacing, require the
+       gap to be larger than both the fixed minimum and the row's normal spacing.
+       This keeps normal letters from being split accidentally.
+    */
+    if (normalStep > 0) {
+        int dynamicThreshold = (normalStep * SPACE_GAP_RATIO_PERCENT) / 100;
+
+        if (dynamicThreshold > threshold) {
+            threshold = dynamicThreshold;
+        }
+    }
+
+    return (xStep >= threshold);
+#else
+    (void)prevBox;
+    (void)currentBox;
+    (void)normalStep;
+    return false;
+#endif
+}
+
 /* =========================
    Slot mapping
    ========================= */
@@ -1349,6 +1442,8 @@ int extractDetectedRows(struct DetectedRow detectedRows[], int maxRowsOut)
             row.xs[i] = 0;
         }
 
+        int normalXStep = estimateNormalXStepForRow(boxes, rowStart, rowEnd);
+
         for (int i = rowStart; i < rowEnd; i++) {
             if (boxes[i].x < row.minX) {
                 row.minX = boxes[i].x;
@@ -1359,6 +1454,24 @@ int extractDetectedRows(struct DetectedRow detectedRows[], int maxRowsOut)
             }
 
             if (row.charCount < activeSlotCount()) {
+                /*
+                   Insert a real space when the OCR boxes show a large visual
+                   gap inside the same row. This is what lets one row become:
+                       hex 307
+                   instead of:
+                       hex307
+
+                   The space is only added to rawText/text. row.chars[] keeps
+                   the actual character boxes only, because calibration/slot
+                   data should not treat the inferred space as an OCR box.
+                */
+                if (row.charCount > 0 &&
+                    shouldInsertOcrSpaceBetweenBoxes(boxes[i - 1], boxes[i], normalXStep)) {
+                    if (row.rawText.length() == 0 || row.rawText[row.rawText.length() - 1] != ' ') {
+                        row.rawText += ' ';
+                    }
+                }
+
                 row.chars[row.charCount] = boxes[i].c;
                 row.xs[row.charCount] = boxes[i].x;
                 row.charCount++;
@@ -3385,7 +3498,7 @@ void setPanelModeFromSpi(int mode)
     } else if (mode == ESP_PANEL_DEBUG) {
         captureActive = sessionStarted;
         calibrationReady = true;
-        Serial.println("[PANEL] DEBUG mode: raw OCR 8-char debug rows, no START321 needed");
+        Serial.println("[PANEL] DEBUG mode: raw OCR debug rows with inferred spaces, no START321 needed");
     } else {
         captureActive = sessionStarted;
         calibrationReady = true;
