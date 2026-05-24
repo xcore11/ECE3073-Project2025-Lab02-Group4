@@ -16,13 +16,9 @@
 #include "debug.h"
 #include "ship.h"
 
-
-/* accel.c provides these functions; keep prototypes here so this file does not
-   depend on a separate accel.h existing in the Nios project. */
-extern int accel_init(void);
-extern int accel_read_x(alt_32 *x);
-extern int accel_read_y(alt_32 *y);
-extern int accel_read_z(alt_32 *z);
+/* REMOVED: Direct accel_init() and accel_read() prototypes.
+   The Control Core handles physical hardware. This core reads from shared memory.
+*/
 
 #define VGA_IRQ_IRQ_RX 1
 #define VGA_IRQ_IRQ_RX_INTERRUPT_CONTROLLER_ID 0
@@ -46,7 +42,12 @@ extern int accel_read_z(alt_32 *z);
 #define FLAG_LAST_ERROR_SHARED         0x34
 #define FLAG_MENU_ENTER_EVENT          0x38
 #define FLAG_MENU_EXIT_EVENT           0x3C
+#define FLAG_SYSTEM_POWER              0x40
+#define FLAG_ACCEL_Y                   0x44 // ADDED: Shared mailbox slot for Accelerometer Data
 #define FLAG_PANEL_MODE_SEQ            0x8C
+
+// ACCEL FOR MENU
+#define FLAG_ACCEL_MENU                0x098
 
 #define FLAG_CONTROL_EVENT_SEQ          0x800
 #define FLAG_CONTROL_KEY_STATE          0x804
@@ -145,17 +146,19 @@ static void vga_irq_rx_setup(void)
 
 static void wait_until_irq_signal_low(void)
 {
-    while ((IORD_ALTERA_AVALON_PIO_DATA(VGA_IRQ_RX_BASE) & VGA_IRQ_RX_ACTIVE_MASK) != 0)
-        usleep(1000);
-
-    IOWR_ALTERA_AVALON_PIO_EDGE_CAP(VGA_IRQ_RX_BASE, VGA_IRQ_RX_ACTIVE_MASK);
+//    while ((IORD_ALTERA_AVALON_PIO_DATA(VGA_IRQ_RX_BASE) & VGA_IRQ_RX_ACTIVE_MASK) != 0)
+//        usleep(1000);
+//
+//    IOWR_ALTERA_AVALON_PIO_EDGE_CAP(VGA_IRQ_RX_BASE, VGA_IRQ_RX_ACTIVE_MASK);
 }
 
+/* ==============================================================
+   OBJECTIVE FIXED: Menu Navigation via Shared Control Core Memory
+   ============================================================== */
 static int read_menu_direction(void)
 {
-    alt_32 x = 0, y = 0, z = 0;
-    if (accel_read_x(&x) != 0 || accel_read_y(&y) != 0 || accel_read_z(&z) != 0)
-        return 0;
+    // Read the Y-axis value updated continually by the Control Processor
+    int32_t y = (int32_t)shared_read_u32(FLAG_ACCEL_Y);
 
     if (y > ACCEL_MENU_THRESHOLD) return 1;
     if (y < -ACCEL_MENU_THRESHOLD) return -1;
@@ -164,9 +167,22 @@ static int read_menu_direction(void)
 
 static void update_menu_navigation(void)
 {
-    int direction = read_menu_direction();
+    alt_32 x = 0, y = 0, z = 0;
 
-    if (direction > 0)
+    // Read directly from the physical SPI Accelerometer
+    if (accel_read_x(&x) != 0 || accel_read_y(&y) != 0 || accel_read_z(&z) != 0)
+        return;
+
+    // Write to Control Processor
+    int tilt_state = 0;
+    if (y > ACCEL_MENU_THRESHOLD) {
+        tilt_state = 1;
+    } else if (y < -ACCEL_MENU_THRESHOLD) {
+        tilt_state = -1;
+    }
+    shared_write_u32(FLAG_ACCEL_MENU, tilt_state);
+
+    if (y > ACCEL_MENU_THRESHOLD)
     {
         selected_menu_index++;
         if (selected_menu_index >= MENU_ITEM_COUNT)
@@ -178,7 +194,7 @@ static void update_menu_navigation(void)
         shared_write_u32(FLAG_VGA_DISPLAY_DONE, 1);
         usleep(MENU_MOVE_DELAY_US);
     }
-    else if (direction < 0)
+    else if (y < -ACCEL_MENU_THRESHOLD)
     {
         selected_menu_index--;
         if (selected_menu_index < 0)
@@ -195,7 +211,6 @@ static void update_menu_navigation(void)
 static void enter_screen(int next_screen)
 {
     shared_write_u32(FLAG_VGA_DISPLAY_DONE, 0);
-
     current_screen = next_screen;
     shared_write_u32(FLAG_PANEL_MODE_SEQ, shared_read_u32(FLAG_PANEL_MODE_SEQ) + 1);
 
@@ -207,6 +222,16 @@ static void enter_screen(int next_screen)
         shared_write_u32(FLAG_DEBUG_MODE, 0);
         menu_draw(selected_menu_index);
     }
+    else if (current_screen == SCREEN_SNAKE)
+    {
+        shared_write_u32(FLAG_CURRENT_GAME, GAME_MODE_SNAKE);
+        shared_write_u32(FLAG_CURRENT_MENU, MENU_SELECT_NONE);
+
+        // Control Core Interlock
+        shared_write_u32(FLAG_GAME_RUNNING, 0);
+        shared_write_u32(FLAG_DEBUG_MODE, 0);
+        snake_init();
+    }
     else if (current_screen == SCREEN_BATTLE)
     {
         shared_write_u32(FLAG_CURRENT_GAME, GAME_MODE_BATTLE);
@@ -214,14 +239,6 @@ static void enter_screen(int next_screen)
         shared_write_u32(FLAG_GAME_RUNNING, 1);
         shared_write_u32(FLAG_DEBUG_MODE, 0);
         ship_game_init();
-    }
-    else if (current_screen == SCREEN_SNAKE)
-    {
-        shared_write_u32(FLAG_CURRENT_GAME, GAME_MODE_SNAKE);
-        shared_write_u32(FLAG_CURRENT_MENU, MENU_SELECT_NONE);
-        shared_write_u32(FLAG_GAME_RUNNING, 1);
-        shared_write_u32(FLAG_DEBUG_MODE, 0);
-        snake_init();
     }
     else if (current_screen == SCREEN_DRAW)
     {
@@ -265,7 +282,6 @@ static void handle_irq_button_action(void)
             shared_write_u32(FLAG_MENU_EXIT_EVENT, shared_read_u32(FLAG_MENU_EXIT_EVENT) + 1);
             enter_screen(SCREEN_MENU);
             usleep(SCREEN_EXIT_DELAY_US);
-            wait_until_irq_signal_low();
             return;
         }
 
@@ -273,32 +289,24 @@ static void handle_irq_button_action(void)
         {
             ship_game_handle_control_event(0, vga_irq_switch_state, event_type);
         }
-
-        wait_until_irq_signal_low();
         return;
     }
 
     if (current_screen == SCREEN_MENU)
     {
-        if ((key_mask & CONTROL_KEY1_MASK) || (key_mask == 0 && event_type != CONTROL_EVENT_SWITCH))
+        // CRITICAL FIX: Only enter a game if KEY1 is EXPLICITLY pressed!
+        if (key_mask & CONTROL_KEY1_MASK)
         {
             shared_write_u32(FLAG_MENU_ENTER_EVENT, shared_read_u32(FLAG_MENU_ENTER_EVENT) + 1);
             enter_screen(menu_get_selected_screen(selected_menu_index));
         }
-        wait_until_irq_signal_low();
     }
     else if (current_screen == SCREEN_BATTLE)
     {
         ship_game_handle_control_event(key_mask, vga_irq_switch_state, event_type);
-        wait_until_irq_signal_low();
     }
     else if (current_screen == SCREEN_SNAKE)
     {
-        /*
-           SW9 remains the universal escape handled above.
-           KEY1/KEY0 should still work on the YOU LOSE screen, otherwise
-           the player gets stuck staring at the retry prompt.
-        */
         if (key_mask & (CONTROL_KEY0_MASK | CONTROL_KEY1_MASK))
         {
             if (snake_is_lost())
@@ -311,7 +319,6 @@ static void handle_irq_button_action(void)
                 fflush(stdout);
             }
         }
-        wait_until_irq_signal_low();
     }
     else if (current_screen == SCREEN_DRAW)
     {
@@ -320,7 +327,6 @@ static void handle_irq_button_action(void)
             printf("Draw KEY1 consumed; use SW9 to return to menu\n");
             fflush(stdout);
         }
-        wait_until_irq_signal_low();
     }
     else if (current_screen == SCREEN_DEBUG)
     {
@@ -330,28 +336,92 @@ static void handle_irq_button_action(void)
         if (key_mask & CONTROL_KEY1_MASK)
             debug_accept_current_image_as_draw_background();
         shared_write_u32(FLAG_VGA_DISPLAY_DONE, 1);
-        wait_until_irq_signal_low();
     }
 }
 
+// Add this tracker variable right above the function
+static int system_was_off = 0;
+
 static void update_current_screen(void)
 {
-    if (current_screen == SCREEN_MENU)
-        update_menu_navigation();
-    else if (current_screen == SCREEN_BATTLE)
-        ship_game_update();
-    else if (current_screen == SCREEN_SNAKE)
-        snake_update();
-    else if (current_screen == SCREEN_DRAW)
-        draw_game_update();
-    else if (current_screen == SCREEN_DEBUG)
-        debug_update();
+    // Read System Power Flag updated via SW4
+    uint32_t system_on = shared_read_u32(FLAG_SYSTEM_POWER);
 
-    if (vga_irq_pending)
-    {
+    if (!system_on) {
+        vga_fill_background(0x00);
+        system_was_off = 1;
+        return;
+    }
+
+    // WAKE UP SEQUENCE
+    if (system_was_off) {
+        enter_screen(SCREEN_MENU); // Resets all flags and draws the menu
+        system_was_off = 0;
+    }
+
+    // =========================================================
+    // CRITICAL FIX: SW9 MASTER OVERRIDE
+    // Continuously monitor SW9 to bypass hardware bouncing issues
+    // =========================================================
+    uint32_t live_switches = shared_read_u32(FLAG_CONTROL_SWITCH_STATE);
+
+    // If SW9 is UP and we are in a game, force an exit instantly!
+    if ((live_switches & CONTROL_SW9_MASK) != 0 && current_screen != SCREEN_MENU) {
+        enter_screen(SCREEN_MENU);
+
+        // Flush the mailbox so no phantom buttons misfire during the exit
+        shared_write_u32(FLAG_CONTROL_LAST_EVENT_TYPE, CONTROL_EVENT_NONE);
+        shared_write_u32(FLAG_CONTROL_KEY_PRESSED_MASK, 0);
+        vga_irq_pending = 0;
+    }
+
+    // =========================================================
+    // UNIFIED MAILBOX POLLING (Keys & Other Switches)
+    // =========================================================
+    uint32_t event_type = shared_read_u32(FLAG_CONTROL_LAST_EVENT_TYPE);
+
+    if (event_type != CONTROL_EVENT_NONE) {
+        vga_irq_control_event_type = event_type;
+
+        if (event_type == CONTROL_EVENT_KEY) {
+            vga_irq_key_pressed_mask = shared_read_u32(FLAG_CONTROL_KEY_PRESSED_MASK);
+            shared_write_u32(FLAG_CONTROL_KEY_PRESSED_MASK, 0); // Clear key mailbox
+        }
+        else if (event_type == CONTROL_EVENT_SWITCH) {
+            vga_irq_switch_state = live_switches; // Use the continuously updated switch state
+            vga_irq_key_pressed_mask = 0;
+        }
+
+        vga_irq_pending = 1;
+
+        // Clear the master event mailbox so we don't process the same action twice!
+        shared_write_u32(FLAG_CONTROL_LAST_EVENT_TYPE, CONTROL_EVENT_NONE);
+    }
+
+    // Normal execution continues here
+    if (current_screen == SCREEN_MENU) {
+        update_menu_navigation();
+    }
+    else if (current_screen == SCREEN_BATTLE) {
+        ship_game_update();
+    }
+    else if (current_screen == SCREEN_SNAKE) {
+        if (shared_read_u32(FLAG_GAME_RUNNING) == 1) {
+            snake_update();
+        }
+    }
+    else if (current_screen == SCREEN_DRAW) {
+        draw_game_update();
+    }
+    else if (current_screen == SCREEN_DEBUG) {
+        debug_update();
+    }
+
+    // Trigger the button/switch logic if an event was pulled from the mailbox
+    if (vga_irq_pending) {
         vga_irq_pending = 0;
         handle_irq_button_action();
-        usleep(200000);
+        usleep(200000); // 200ms debounce
     }
 }
 
@@ -366,15 +436,11 @@ int main(void)
     debug_irq_tx_set_false();
     vga_irq_rx_setup();
 
-    if (accel_init() != 0)
-    {
-        printf("Accelerometer init failed\n");
-        fflush(stdout);
-    }
-    else
-    {
-        printf("Accelerometer init OK\n");
-        fflush(stdout);
+    // CRITICAL FIX: The VGA Core MUST be the one to initialize the accelerometer!
+    if (accel_init() != 0) {
+        printf("[VGA Core] Accelerometer init failed\n");
+    } else {
+        printf("[VGA Core] Accelerometer init OK\n");
     }
 
     shared_write_u32(FLAG_VGA_DISPLAY_DONE, 0);
@@ -384,7 +450,7 @@ int main(void)
     while (1)
     {
         update_current_screen();
-        usleep(20000);
+        usleep(20000); // Polling loop speed
     }
 
     return 0;

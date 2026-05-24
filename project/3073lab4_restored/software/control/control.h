@@ -17,6 +17,19 @@
 #define FLAG_CONTROL_LAST_EVENT_TYPE   0x814
 #define FLAG_CONTROL_LAST_EVENT_VALUE  0x818
 
+// Snake Game
+#define FLAG_EAT_APPLE                 0x090
+#define FLAG_GAME_OVER                 0x094
+#define FLAG_PORTAL                    0x900
+
+// Ship Game
+#define FLAG_EXPLOSION                 0x09C
+#define FLAG_CHANGE_ARSENAL            0X0A0
+#define FLAG_MISS                      0X0A4
+
+// Menu Tilt Interaction
+#define FLAG_ACCEL_MENU                0x098
+
 #define CONTROL_EVENT_NONE             0
 #define CONTROL_EVENT_KEY              1
 #define CONTROL_EVENT_SWITCH           2
@@ -74,6 +87,8 @@ void play_speaker(int frequency, int on_off);
 void red_light(int on_off);
 void yellow_light(int on_off);
 void green_light(int on_off);
+void eat_apple(int trigger);
+void game_over(int trigger);
 
 /* accelerometer function */
 int accel_init(void);

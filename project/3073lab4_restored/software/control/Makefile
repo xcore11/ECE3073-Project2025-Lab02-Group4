@@ -146,6 +146,8 @@ C_SRCS += main.c
 C_SRCS += speaker.c
 C_SRCS += traffc_led.c
 C_SRCS += switches_key.c
+C_SRCS += countdown.c
+C_SRCS += soundeffects.c
 CXX_SRCS :=
 ASM_SRCS :=
 

@@ -1,11 +1,13 @@
 #include "system.h"
-#include "io.h"
-#include <stdint.h>
 #include "altera_avalon_pio_regs.h"
 #include "sys/alt_irq.h"
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
+#include <stdlib.h>
 #include "control.h"
+#include "soundeffects.h"
+
 volatile int switch_state = 0;
 volatile int key_state = 0;
 volatile int GPIO_state = 0;
@@ -14,91 +16,65 @@ static int scroll_counter = 0;
 static int scroll_offset = 0;
 const int scroll_speed = 2000;
 
-static uint32_t control_event_seq = 0;
-static uint32_t control_switch_event_seq = 0;
+#define CON_IMG_IRQ_RX_IRQ_INTERRUPT_CONTROLLER_ID 0
+#define CON_IMG_IRQ_RX_BASE 0x8011120
+#define CON_VGA_IRQ_RX_IRQ_INTERRUPT_CONTROLLER_ID 0
+#define CON_VGA_IRQ_RX_BASE 0x8011100
+#define CON_IMG_IRQ_TX_IRQ_INTERRUPT_CONTROLLER_ID -1
+#define CON_IMG_IRQ_TX_BASE 0x8011130
+#define CON_VGA_IRQ_TX_BASE 0x8011110
+#define CON_IMG_IRQ_RX_IRQ 3
+#define CON_VGA_IRQ_RX_IRQ 4
 
-static void shared_write32(uint32_t offset, uint32_t value)
-{
-    IOWR_32DIRECT(SHARED_FLAGS_BASE, offset, value);
-}
+// Forward Declarations / Prototypes
+int translator(char a);
 
-uint32_t control_get_switch_state(void)
-{
-    return (uint32_t)(switch_state & CONTROL_SW_MASK);
-}
+/* ========================================================================
+   SNAKE GAME STATE MACHINE & SHARED MEMORY CONFIGURATION
+   ======================================================================== */
+#define STATE_IDLE        0
+#define STATE_COUNTDOWN  1
+#define STATE_GAME_LIVE  2
 
-uint32_t control_get_key_state(void)
-{
-    return (uint32_t)(key_state & CONTROL_KEY_MASK);
-}
+// Shared Mailbox Slots for Button Presses & Switch States
+#define FLAG_CONTROL_KEY_PRESSED_MASK   0x808
+#define FLAG_CONTROL_SWITCH_STATE       0x80C
+#define FLAG_CONTROL_LAST_EVENT_TYPE    0x814
 
-void control_shared_flags_init(void)
-{
-    switch_state = IORD_ALTERA_AVALON_PIO_DATA(PIO_SW_BASE) & CONTROL_SW_MASK;
-    key_state = IORD_ALTERA_AVALON_PIO_DATA(PIO_PB_BASE) & CONTROL_KEY_MASK;
+#define CONTROL_EVENT_KEY                1
+#define CONTROL_EVENT_SWITCH             2
 
-    control_event_seq = 0;
-    control_switch_event_seq = 0;
+#define SHARED_GAME_STATE_PTR ((volatile uint32_t *)(NEW_SDRAM_CONTROLLER_0_BASE + 0x4000))
 
-    shared_write32(FLAG_CONTROL_PROCESSOR_READY, 1);
-    shared_write32(FLAG_CONTROL_EVENT_SEQ, control_event_seq);
-    shared_write32(FLAG_CONTROL_KEY_STATE, (uint32_t)key_state);
-    shared_write32(FLAG_CONTROL_KEY_PRESSED_MASK, 0);
-    shared_write32(FLAG_CONTROL_SWITCH_STATE, (uint32_t)switch_state);
-    shared_write32(FLAG_CONTROL_SWITCH_EVENT_SEQ, control_switch_event_seq);
-    shared_write32(FLAG_CONTROL_LAST_EVENT_TYPE, CONTROL_EVENT_NONE);
-    shared_write32(FLAG_CONTROL_LAST_EVENT_VALUE, 0);
-}
+static int internal_game_state = STATE_IDLE;
+static int countdown_val = 3;
+static int countdown_tick = 0;
+const int countdown_speed = 30000;
 
-static void publish_control_event(uint32_t event_type, uint32_t event_value, uint32_t key_pressed_mask)
-{
-    control_event_seq++;
+#define SHARED_FLAGS_BASE              0x05212000
+#define FLAG_CURRENT_GAME              0x18
+#define FLAG_GAME_RUNNING              0x1C
+#define FLAG_SYSTEM_POWER              0x40
 
-    shared_write32(FLAG_CONTROL_KEY_STATE, (uint32_t)(key_state & CONTROL_KEY_MASK));
-    shared_write32(FLAG_CONTROL_KEY_PRESSED_MASK, key_pressed_mask & CONTROL_KEY_MASK);
-    shared_write32(FLAG_CONTROL_SWITCH_STATE, (uint32_t)(switch_state & CONTROL_SW_MASK));
-    shared_write32(FLAG_CONTROL_LAST_EVENT_TYPE, event_type);
-    shared_write32(FLAG_CONTROL_LAST_EVENT_VALUE, event_value);
+#define GAME_MODE_MENU                  0
+#define GAME_MODE_SNAKE                 1
 
-    if (event_type == CONTROL_EVENT_SWITCH) {
-        control_switch_event_seq++;
-        shared_write32(FLAG_CONTROL_SWITCH_EVENT_SEQ, control_switch_event_seq);
-    }
+extern int run_synchronized_countdown(void);
 
-    shared_write32(FLAG_CONTROL_EVENT_SEQ, control_event_seq);
-}
 
-static void notify_img_and_vga_processors(void)
-{
-    /* Pulse both interrupt lines. The shared flags above tell IMG/VGA
-       whether this was KEY0, KEY1, or a switch update. */
-    IOWR_ALTERA_AVALON_PIO_DATA(CON_IMG_IRQ_TX_BASE, 0x1);
-    IOWR_ALTERA_AVALON_PIO_DATA(CON_VGA_IRQ_TX_BASE, 0x1);
-    IOWR_ALTERA_AVALON_PIO_DATA(CON_IMG_IRQ_TX_BASE, 0x0);
-    IOWR_ALTERA_AVALON_PIO_DATA(CON_VGA_IRQ_TX_BASE, 0x0);
-
-    GPIO_state = GPIO_state | 0x3;
-    IOWR_ALTERA_AVALON_PIO_DATA(PIO_GPIO_BASE, GPIO_state);
-}
+/* ========================================================================
+   INTERRUPT SERVICE ROUTINES & SETUP
+   ======================================================================== */
 
 static void switch_isr(void* context) {
-    // Clear the edge capture register
-    IOWR_ALTERA_AVALON_PIO_EDGE_CAP(PIO_SW_BASE, CONTROL_SW_MASK);
-
-    // Updates the switch switch_state and publishes SW0..SW9 to shared SDRAM.
-    switch_state = IORD_ALTERA_AVALON_PIO_DATA(PIO_SW_BASE) & CONTROL_SW_MASK;
-    publish_control_event(CONTROL_EVENT_SWITCH, (uint32_t)switch_state, 0);
-    notify_img_and_vga_processors();
+    IOWR_ALTERA_AVALON_PIO_EDGE_CAP(PIO_SW_BASE, 0x3FF);
+    switch_state = IORD_ALTERA_AVALON_PIO_DATA(PIO_SW_BASE);
 }
 
 void switch_setup(void) {
-    // Clear pending switch triggers
-    IOWR_ALTERA_AVALON_PIO_EDGE_CAP(PIO_SW_BASE, CONTROL_SW_MASK);
+    IOWR_ALTERA_AVALON_PIO_EDGE_CAP(PIO_SW_BASE, 0x3FF);
+    IOWR_ALTERA_AVALON_PIO_IRQ_MASK(PIO_SW_BASE, 0x3FF);
 
-    // Enable hardware interrupts
-    IOWR_ALTERA_AVALON_PIO_IRQ_MASK(PIO_SW_BASE, CONTROL_SW_MASK);
-
-    // Register the ISR with the processor
     alt_ic_isr_register(
         PIO_SW_IRQ_INTERRUPT_CONTROLLER_ID,
         PIO_SW_IRQ,
@@ -107,26 +83,18 @@ void switch_setup(void) {
         NULL
     );
 
-    // Setup initial switch switch_state
-    switch_state = IORD_ALTERA_AVALON_PIO_DATA(PIO_SW_BASE) & CONTROL_SW_MASK;
+    switch_state = IORD_ALTERA_AVALON_PIO_DATA(PIO_SW_BASE);
 }
 
 static void key_isr(void* context) {
-    // Clear the edge capture register
-    IOWR_ALTERA_AVALON_PIO_EDGE_CAP(PIO_PB_BASE, CONTROL_KEY_MASK);
-
-    // Updates the key key_state
-    key_state = IORD_ALTERA_AVALON_PIO_DATA(PIO_PB_BASE) & CONTROL_KEY_MASK;
+    IOWR_ALTERA_AVALON_PIO_EDGE_CAP(PIO_PB_BASE, 0x3);
+    key_state = IORD_ALTERA_AVALON_PIO_DATA(PIO_PB_BASE);
 }
 
 void key_setup(void) {
-    // Clear pending key triggers
-    IOWR_ALTERA_AVALON_PIO_EDGE_CAP(PIO_PB_BASE, CONTROL_KEY_MASK);
+    IOWR_ALTERA_AVALON_PIO_EDGE_CAP(PIO_PB_BASE, 0x3);
+    IOWR_ALTERA_AVALON_PIO_IRQ_MASK(PIO_PB_BASE, 0x3);
 
-    // Enable hardware interrupts
-    IOWR_ALTERA_AVALON_PIO_IRQ_MASK(PIO_PB_BASE, CONTROL_KEY_MASK);
-
-    // Register the ISR with the processor
     alt_ic_isr_register(
         PIO_PB_IRQ_INTERRUPT_CONTROLLER_ID,
         PIO_PB_IRQ,
@@ -135,30 +103,22 @@ void key_setup(void) {
         NULL
     );
 
-    // Setup initial key key_state
-    key_state = IORD_ALTERA_AVALON_PIO_DATA(PIO_PB_BASE) & CONTROL_KEY_MASK;
+    key_state = IORD_ALTERA_AVALON_PIO_DATA(PIO_PB_BASE);
 }
 
 static void img_rx_isr(void* context) {
-    // Clear the edge capture register
     IOWR_ALTERA_AVALON_PIO_EDGE_CAP(CON_IMG_IRQ_RX_BASE, 0x1);
-
-    // Resets the GPIO [0]
     IOWR_ALTERA_AVALON_PIO_DATA(PIO_GPIO_BASE, (GPIO_state & 0x2));
     GPIO_state = GPIO_state & 0x2;
 }
 
 void img_rx_setup(void) {
-    // Clear GPIO triggers
     IOWR_ALTERA_AVALON_PIO_EDGE_CAP(CON_IMG_IRQ_RX_BASE, 0x1);
-
-    // Enable hardware interrupts
     IOWR_ALTERA_AVALON_PIO_IRQ_MASK(CON_IMG_IRQ_RX_BASE, 0x1);
 
-    // Register the ISR with the processor
     alt_ic_isr_register(
-    	CON_IMG_IRQ_RX_IRQ_INTERRUPT_CONTROLLER_ID,
-		CON_IMG_IRQ_RX_IRQ,
+        CON_IMG_IRQ_RX_IRQ_INTERRUPT_CONTROLLER_ID,
+        CON_IMG_IRQ_RX_IRQ,
         img_rx_isr,
         NULL,
         NULL
@@ -166,55 +126,62 @@ void img_rx_setup(void) {
 }
 
 static void vga_rx_isr(void* context) {
-    // Clear the edge capture register
     IOWR_ALTERA_AVALON_PIO_EDGE_CAP(CON_VGA_IRQ_RX_BASE, 0x1);
-
-    // Resets the GPIO [1]
     IOWR_ALTERA_AVALON_PIO_DATA(PIO_GPIO_BASE, (GPIO_state & 0x1));
     GPIO_state = GPIO_state & 0x1;
 }
 
 void vga_rx_setup(void) {
-    // Clear GPIO triggers
     IOWR_ALTERA_AVALON_PIO_EDGE_CAP(CON_VGA_IRQ_RX_BASE, 0x1);
-
-    // Enable hardware interrupts
     IOWR_ALTERA_AVALON_PIO_IRQ_MASK(CON_VGA_IRQ_RX_BASE, 0x1);
 
-    // Register the ISR with the processor
     alt_ic_isr_register(
-    	CON_VGA_IRQ_RX_IRQ_INTERRUPT_CONTROLLER_ID,
-		CON_VGA_IRQ_RX_IRQ,
+        CON_VGA_IRQ_RX_IRQ_INTERRUPT_CONTROLLER_ID,
+        CON_VGA_IRQ_RX_IRQ,
         vga_rx_isr,
         NULL,
         NULL
     );
 }
 
+/* ========================================================================
+   PERIPHERAL HANDLER FUNCTIONS
+   ======================================================================== */
+
 void handle_key1(void)
 {
-    /* Physical KEY0. Published to both IMG and VGA.
-       - Before session start: IMG uses it as session-start.
-       - In Debug panel: IMG uses it as image-capture request. */
-	if ((~key_state) & CONTROL_KEY0_MASK)
-	{
-        publish_control_event(CONTROL_EVENT_KEY, CONTROL_KEY0_MASK, CONTROL_KEY0_MASK);
-        notify_img_and_vga_processors();
-		key_state = (key_state | CONTROL_KEY0_MASK) & CONTROL_KEY_MASK;
-	}
+    if ((~key_state) & 0x01)
+    {
+        IOWR_32DIRECT(SHARED_FLAGS_BASE, FLAG_CONTROL_KEY_PRESSED_MASK, 0x01);
+        IOWR_32DIRECT(SHARED_FLAGS_BASE, FLAG_CONTROL_LAST_EVENT_TYPE, CONTROL_EVENT_KEY);
+
+        IOWR_ALTERA_AVALON_PIO_DATA(CON_IMG_IRQ_TX_BASE, 0x1);
+        IOWR_ALTERA_AVALON_PIO_DATA(CON_VGA_IRQ_TX_BASE, 0x1);
+        IOWR_ALTERA_AVALON_PIO_DATA(CON_IMG_IRQ_TX_BASE, 0x0);
+        IOWR_ALTERA_AVALON_PIO_DATA(CON_VGA_IRQ_TX_BASE, 0x0);
+
+        GPIO_state = GPIO_state | 0x1;
+        IOWR_ALTERA_AVALON_PIO_DATA(PIO_GPIO_BASE, GPIO_state);
+
+        key_state = (key_state | 0x01);
+    }
 }
 
 void handle_key2(void)
 {
-    /* Physical KEY1. Published to both IMG and VGA.
-       - Menu/Snake VGA uses it as the action button.
-       - Debug VGA uses it to accept the latest image as Draw background. */
-	if ((~key_state) & CONTROL_KEY1_MASK)
-	{
-        publish_control_event(CONTROL_EVENT_KEY, CONTROL_KEY1_MASK, CONTROL_KEY1_MASK);
-        notify_img_and_vga_processors();
-		key_state = (key_state | CONTROL_KEY1_MASK) & CONTROL_KEY_MASK;
-	}
+    if ((~key_state) & 0x02)
+    {
+        IOWR_32DIRECT(SHARED_FLAGS_BASE, FLAG_CONTROL_KEY_PRESSED_MASK, 0x02);
+        IOWR_32DIRECT(SHARED_FLAGS_BASE, FLAG_CONTROL_LAST_EVENT_TYPE, CONTROL_EVENT_KEY);
+
+        IOWR_ALTERA_AVALON_PIO_DATA(CON_VGA_IRQ_TX_BASE, 0x1);
+        IOWR_ALTERA_AVALON_PIO_DATA(CON_VGA_IRQ_TX_BASE, 0x0);
+
+        GPIO_state = GPIO_state | 0x2;
+        IOWR_ALTERA_AVALON_PIO_DATA(PIO_GPIO_BASE, GPIO_state);
+
+        key_state = (key_state | 0x02);
+    }
 }
 
 void HEX_enable(void)
@@ -282,7 +249,6 @@ void handle_switch2(const char *message)
 void handle_switch3(void)
 {
     if ((switch_state & 0x04) && HEX_enable_bit) {
-        /* placeholder CPU utilization */
         IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX1_BASE, translator('8'));
         IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX0_BASE, translator('7'));
     } else {
@@ -291,13 +257,106 @@ void handle_switch3(void)
     }
 }
 
+/* ========================================================================
+   MODIFIED: handle_switch4 now cycles through sound effects via Edge Detection
+   ======================================================================== */
 void handle_switch4(void)
 {
-	if (switch_state & 0x08) {
-		play_speaker(1000, 1);
-	} else {
-		play_speaker(1000, 0);
-	}
+    static int sw4_was_high = 0;
+    static int sound_cycle_index = 0;
+
+    // Check current hardware state of the switch (0x08 matching your mapping)
+    int sw4_is_high = (switch_state & 0x08) ? 1 : 0;
+
+    // Rising Edge Detected: Switch was just flipped UP
+    if (sw4_is_high && !sw4_was_high) {
+        printf("[Sound Test] Playing Effect #%d...\n", sound_cycle_index);
+
+        switch (sound_cycle_index) {
+            case 0:
+                sfx_laser_shoot();
+                break;
+            case 1:
+                sfx_explosion();
+                break;
+            case 2:
+                sfx_portal();
+                break;
+            case 3:
+                sfx_menu_blip();
+                break;
+            case 4:
+                sfx_error_buzz();
+                break;
+            case 5:
+            	sfx_eat_apple();
+            	break;
+            case 6:
+            	sfx_end_screen();
+            	break;
+            default:
+                play_speaker(0, 0);
+                break;
+        }
+
+        // Advance to next sound effect slot (0 to 7)
+        sound_cycle_index = (sound_cycle_index + 1) % 7;
+    }
+
+    // Fallback: If switch is left down, ensure speaker hardware is off
+    if (!sw4_is_high) {
+        play_speaker(0, 0);
+    }
+
+    // Latch history for the next iteration of main loop execution
+    sw4_was_high = sw4_is_high;
+}
+
+int game_already_started = 0;
+
+void handle_snake_game_switch(void) {
+    if (switch_state & 0x10) {
+        IOWR_32DIRECT(SHARED_FLAGS_BASE, FLAG_SYSTEM_POWER, 1);
+
+        uint32_t current_game = IORD_32DIRECT(SHARED_FLAGS_BASE, FLAG_CURRENT_GAME);
+        uint32_t game_running = IORD_32DIRECT(SHARED_FLAGS_BASE, FLAG_GAME_RUNNING);
+
+        if (current_game == GAME_MODE_SNAKE && game_running == 0) {
+            if (game_already_started == 0) {
+                printf("\n[Control Core] Snake screen detected. Starting countdown...\n");
+
+                int aborted = run_synchronized_countdown();
+
+                if (!aborted) {
+                    printf("[Control Core] Countdown complete! UNLOCKING SNAKE.\n");
+                    IOWR_32DIRECT(SHARED_FLAGS_BASE, FLAG_GAME_RUNNING, 1);
+                    game_already_started = 1;
+                } else {
+                    printf("[Control Core] Countdown aborted mid-way.\n");
+                    game_already_started = 0;
+                }
+            }
+        }
+        else if (current_game != GAME_MODE_SNAKE) {
+            game_already_started = 0;
+        }
+    }
+    else {
+        IOWR_32DIRECT(SHARED_FLAGS_BASE, FLAG_SYSTEM_POWER, 0);
+
+        red_light(0);
+        yellow_light(0);
+        green_light(0);
+        play_speaker(1000, 0);
+        IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX0_BASE, 0xFF);
+
+        game_already_started = 0;
+    }
+}
+
+void handle_switch9(void) {
+    int live_switches = IORD_ALTERA_AVALON_PIO_DATA(PIO_SW_BASE);
+    IOWR_32DIRECT(SHARED_FLAGS_BASE, FLAG_CONTROL_SWITCH_STATE, live_switches);
 }
 
 int translator(char a)
@@ -328,4 +387,16 @@ int translator(char a)
     }
 
     return 0xFF;
+}
+
+void control_shared_flags_init(void)
+{
+    switch_state = IORD_ALTERA_AVALON_PIO_DATA(PIO_SW_BASE) & 0x3FF;
+    key_state = IORD_ALTERA_AVALON_PIO_DATA(PIO_PB_BASE) & 0x3;
+
+    if (switch_state & 0x10) {
+        IOWR_32DIRECT(SHARED_FLAGS_BASE, FLAG_SYSTEM_POWER, 1);
+    } else {
+        IOWR_32DIRECT(SHARED_FLAGS_BASE, FLAG_SYSTEM_POWER, 0);
+    }
 }

@@ -4,7 +4,7 @@
  * Machine generated for CPU 'control_proc' in SOPC Builder design 'NIOSII_WEEK3'
  * SOPC Builder design path: ../../NIOSII_WEEK3.sopcinfo
  *
- * Generated: Fri May 01 04:08:40 SGT 2026
+ * Generated: Sat May 23 15:50:50 SGT 2026
  */
 
 /*
@@ -61,6 +61,7 @@
 #include "altera_nios2_gen2_irq.h"
 #include "altera_avalon_jtag_uart.h"
 #include "altera_avalon_mutex.h"
+#include "altera_avalon_timer.h"
 
 /*
  * Allocate the device storage
@@ -69,6 +70,7 @@
 ALTERA_NIOS2_GEN2_IRQ_INSTANCE ( CONTROL_PROC, control_proc);
 ALTERA_AVALON_JTAG_UART_INSTANCE ( JTAG_CONTROL, jtag_control);
 ALTERA_AVALON_MUTEX_INSTANCE ( MUTEX_0, mutex_0);
+ALTERA_AVALON_TIMER_INSTANCE ( RTOS_TIMER, rtos_timer);
 
 /*
  * Initialize the interrupt controller devices
@@ -91,6 +93,7 @@ void alt_irq_init ( const void* base )
 
 void alt_sys_init( void )
 {
+    ALTERA_AVALON_TIMER_INIT ( RTOS_TIMER, rtos_timer);
     ALTERA_AVALON_JTAG_UART_INIT ( JTAG_CONTROL, jtag_control);
     ALTERA_AVALON_MUTEX_INIT ( MUTEX_0, mutex_0);
 }

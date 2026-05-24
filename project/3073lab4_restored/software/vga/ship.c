@@ -96,6 +96,12 @@ extern int accel_read_z(alt_32 *z);
 #define CONTROL_SW8_MASK         0x00000100u
 #define CONTROL_SW9_MASK         0x00000200u
 
+// Ship Game
+#define FLAG_EXPLOSION                 0x09C
+#define FLAG_CHANGE_ARSENAL            0X0A0
+#define FLAG_MISS                      0x0A4
+#define FLAG_GAME_OVER                 0x094
+
 /* =========================
    Battle board settings
    ========================= */
@@ -710,6 +716,7 @@ static void apply_hit_to_cell(int gx, int gy, int blast_kind)
         {
             shot_map[gy][gx] = SHOT_HIT;
             destroyed_ship_cells++;
+            IOWR_32DIRECT(SHARED_FLAGS_BASE, FLAG_EXPLOSION, 1);
 
             if (layout_loaded && destroyed_ship_cells >= loaded_ship_cells && !fleet_popup_dismissed)
             {
@@ -717,6 +724,7 @@ static void apply_hit_to_cell(int gx, int gy, int blast_kind)
                    Fleet-down screen is modal. Stop blast animation and force
                    one clean redraw so the popup does not flicker.
                 */
+            	IOWR_32DIRECT(SHARED_FLAGS_BASE, FLAG_GAME_OVER, 1);
                 memset(blasts, 0, sizeof(blasts));
                 fleet_popup_visible = 1;
                 fleet_popup_drawn = 0;
@@ -730,6 +738,7 @@ static void apply_hit_to_cell(int gx, int gy, int blast_kind)
     else if (shot_map[gy][gx] == SHOT_NONE)
     {
         shot_map[gy][gx] = SHOT_MISS;
+        IOWR_32DIRECT(SHARED_FLAGS_BASE, FLAG_MISS, 1);
     }
 
     add_blast(gx, gy, blast_kind);
