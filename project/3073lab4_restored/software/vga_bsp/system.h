@@ -4,7 +4,11 @@
  * Machine generated for CPU 'vga_proc' in SOPC Builder design 'NIOSII_WEEK3'
  * SOPC Builder design path: ../../NIOSII_WEEK3.sopcinfo
  *
- * Generated: Sat May 23 03:32:09 SGT 2026
+<<<<<<< Updated upstream
+ * Generated: Sat May 23 15:50:55 SGT 2026
+=======
+ * Generated: Sat May 23 14:27:45 SGT 2026
+>>>>>>> Stashed changes
  */
 
 /*
@@ -235,7 +239,7 @@
  */
 
 #define ALT_MODULE_CLASS_mutex_0 altera_avalon_mutex
-#define MUTEX_0_BASE 0x8005208
+#define MUTEX_0_BASE 0x8005248
 #define MUTEX_0_IRQ -1
 #define MUTEX_0_IRQ_INTERRUPT_CONTROLLER_ID -1
 #define MUTEX_0_NAME "/dev/mutex_0"

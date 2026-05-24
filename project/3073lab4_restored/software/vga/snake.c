@@ -118,6 +118,11 @@ extern int accel_read_z(alt_32 *z);
 #define SNAKE_FLAG_LAST_APPLIED_SEQ    0x080
 #define SNAKE_FLAG_LAST_CMD_STATUS     0x084
 
+// Snake Game
+#define FLAG_EAT_APPLE                 0x090
+#define FLAG_GAME_OVER                 0x094
+#define FLAG_PORTAL                    0x900
+
 /* Snake binary mailbox: 0x100 - 0x2FF */
 #define SNAKE_MB_READY                 0x100
 #define SNAKE_MB_ACK                   0x104
@@ -655,6 +660,7 @@ static void draw_lose_screen(void)
 
     vga_print_software_text(52, 142, "KEY1 RETRY", COL_GREEN);
     vga_print_software_text(54, 166, "SW9 BACK TO MENU", COL_CYAN);
+
 }
 
 static void clear_all_static_arena(void)
@@ -1469,6 +1475,8 @@ static void snake_step(void)
 
     if (new_cell_value == SNAKE_CELL_PORTAL_A || new_cell_value == SNAKE_CELL_PORTAL_B)
     {
+    	IOWR_32DIRECT(SHARED_FLAGS_BASE, FLAG_PORTAL, 1);
+
         apply_portal_if_needed(&new_head);
 
         wrap_cell_to_arena(&new_head);
@@ -1507,6 +1515,7 @@ static void snake_step(void)
         ate_food_last_step = 1;
         score++;
         shared_set_event(SNAKE_EVENT_ATE_APPLE);
+        IOWR_32DIRECT(SHARED_FLAGS_BASE, FLAG_EAT_APPLE, 1);
 
         /* Remove only the eaten active apple. Decoder apple config is kept,
            so all decoder apples return after retry/reset. */
@@ -1631,12 +1640,14 @@ void snake_update(void)
     {
         if (!lose_screen_drawn)
         {
+
             printf("Snake lost. Final score = %d\n", score);
             printf("Press button to retry\n");
             fflush(stdout);
 
             draw_lose_screen();
             lose_screen_drawn = 1;
+
         }
 
         return;
@@ -1659,8 +1670,12 @@ void snake_update(void)
 
     if (snake_lost)
     {
-        draw_lose_screen();
-        lose_screen_drawn = 1;
+    	if (!lose_screen_drawn){
+            draw_lose_screen();
+            lose_screen_drawn = 1;
+        	IOWR_32DIRECT(SHARED_FLAGS_BASE, FLAG_GAME_OVER, 1);
+    	}
+
     }
     else
     {

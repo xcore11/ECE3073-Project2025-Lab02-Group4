@@ -4,7 +4,11 @@
  * Machine generated for CPU 'control_proc' in SOPC Builder design 'NIOSII_WEEK3'
  * SOPC Builder design path: ../../NIOSII_WEEK3.sopcinfo
  *
- * Generated: Sat May 23 01:47:25 SGT 2026
+<<<<<<< Updated upstream
+ * Generated: Sat May 23 15:50:50 SGT 2026
+=======
+ * Generated: Sat May 23 14:27:19 SGT 2026
+>>>>>>> Stashed changes
  */
 
 /*
@@ -146,6 +150,7 @@
 #define __ALTERA_AVALON_NEW_SDRAM_CONTROLLER
 #define __ALTERA_AVALON_ONCHIP_MEMORY2
 #define __ALTERA_AVALON_PIO
+#define __ALTERA_AVALON_TIMER
 #define __ALTERA_NIOS2_GEN2
 
 
@@ -165,19 +170,19 @@
 #define ALT_NUM_INTERNAL_INTERRUPT_CONTROLLERS 1
 #define ALT_NUM_INTERRUPT_CONTROLLERS 1
 #define ALT_STDERR "/dev/jtag_control"
-#define ALT_STDERR_BASE 0x8005210
+#define ALT_STDERR_BASE 0x8005250
 #define ALT_STDERR_DEV jtag_control
 #define ALT_STDERR_IS_JTAG_UART
 #define ALT_STDERR_PRESENT
 #define ALT_STDERR_TYPE "altera_avalon_jtag_uart"
 #define ALT_STDIN "/dev/jtag_control"
-#define ALT_STDIN_BASE 0x8005210
+#define ALT_STDIN_BASE 0x8005250
 #define ALT_STDIN_DEV jtag_control
 #define ALT_STDIN_IS_JTAG_UART
 #define ALT_STDIN_PRESENT
 #define ALT_STDIN_TYPE "altera_avalon_jtag_uart"
 #define ALT_STDOUT "/dev/jtag_control"
-#define ALT_STDOUT_BASE 0x8005210
+#define ALT_STDOUT_BASE 0x8005250
 #define ALT_STDOUT_DEV jtag_control
 #define ALT_STDOUT_IS_JTAG_UART
 #define ALT_STDOUT_PRESENT
@@ -191,7 +196,7 @@
  */
 
 #define ALT_MODULE_CLASS_con_img_IRQ_rx altera_avalon_pio
-#define CON_IMG_IRQ_RX_BASE 0x8005120
+#define CON_IMG_IRQ_RX_BASE 0x8005160
 #define CON_IMG_IRQ_RX_BIT_CLEARING_EDGE_REGISTER 0
 #define CON_IMG_IRQ_RX_BIT_MODIFYING_OUTPUT_REGISTER 0
 #define CON_IMG_IRQ_RX_CAPTURE 1
@@ -218,7 +223,7 @@
  */
 
 #define ALT_MODULE_CLASS_con_img_IRQ_tx altera_avalon_pio
-#define CON_IMG_IRQ_TX_BASE 0x8005130
+#define CON_IMG_IRQ_TX_BASE 0x8005170
 #define CON_IMG_IRQ_TX_BIT_CLEARING_EDGE_REGISTER 0
 #define CON_IMG_IRQ_TX_BIT_MODIFYING_OUTPUT_REGISTER 0
 #define CON_IMG_IRQ_TX_CAPTURE 0
@@ -245,7 +250,7 @@
  */
 
 #define ALT_MODULE_CLASS_con_vga_IRQ_rx altera_avalon_pio
-#define CON_VGA_IRQ_RX_BASE 0x8005100
+#define CON_VGA_IRQ_RX_BASE 0x8005140
 #define CON_VGA_IRQ_RX_BIT_CLEARING_EDGE_REGISTER 0
 #define CON_VGA_IRQ_RX_BIT_MODIFYING_OUTPUT_REGISTER 0
 #define CON_VGA_IRQ_RX_CAPTURE 1
@@ -272,7 +277,7 @@
  */
 
 #define ALT_MODULE_CLASS_con_vga_IRQ_tx altera_avalon_pio
-#define CON_VGA_IRQ_TX_BASE 0x8005110
+#define CON_VGA_IRQ_TX_BASE 0x8005150
 #define CON_VGA_IRQ_TX_BIT_CLEARING_EDGE_REGISTER 0
 #define CON_VGA_IRQ_TX_BIT_MODIFYING_OUTPUT_REGISTER 0
 #define CON_VGA_IRQ_TX_CAPTURE 0
@@ -339,7 +344,7 @@
  */
 
 #define ALT_MODULE_CLASS_jtag_control altera_avalon_jtag_uart
-#define JTAG_CONTROL_BASE 0x8005210
+#define JTAG_CONTROL_BASE 0x8005250
 #define JTAG_CONTROL_IRQ 0
 #define JTAG_CONTROL_IRQ_INTERRUPT_CONTROLLER_ID 0
 #define JTAG_CONTROL_NAME "/dev/jtag_control"
@@ -357,7 +362,7 @@
  */
 
 #define ALT_MODULE_CLASS_mutex_0 altera_avalon_mutex
-#define MUTEX_0_BASE 0x8005208
+#define MUTEX_0_BASE 0x8005248
 #define MUTEX_0_IRQ -1
 #define MUTEX_0_IRQ_INTERRUPT_CONTROLLER_ID -1
 #define MUTEX_0_NAME "/dev/mutex_0"
@@ -414,7 +419,7 @@
  */
 
 #define ALT_MODULE_CLASS_pio_gpio altera_avalon_pio
-#define PIO_GPIO_BASE 0x80051c0
+#define PIO_GPIO_BASE 0x8005200
 #define PIO_GPIO_BIT_CLEARING_EDGE_REGISTER 0
 #define PIO_GPIO_BIT_MODIFYING_OUTPUT_REGISTER 0
 #define PIO_GPIO_CAPTURE 0
@@ -441,7 +446,7 @@
  */
 
 #define ALT_MODULE_CLASS_pio_hex0 altera_avalon_pio
-#define PIO_HEX0_BASE 0x80051b0
+#define PIO_HEX0_BASE 0x80051f0
 #define PIO_HEX0_BIT_CLEARING_EDGE_REGISTER 0
 #define PIO_HEX0_BIT_MODIFYING_OUTPUT_REGISTER 0
 #define PIO_HEX0_CAPTURE 0
@@ -468,7 +473,7 @@
  */
 
 #define ALT_MODULE_CLASS_pio_hex1 altera_avalon_pio
-#define PIO_HEX1_BASE 0x80051a0
+#define PIO_HEX1_BASE 0x80051e0
 #define PIO_HEX1_BIT_CLEARING_EDGE_REGISTER 0
 #define PIO_HEX1_BIT_MODIFYING_OUTPUT_REGISTER 0
 #define PIO_HEX1_CAPTURE 0
@@ -495,7 +500,7 @@
  */
 
 #define ALT_MODULE_CLASS_pio_hex2 altera_avalon_pio
-#define PIO_HEX2_BASE 0x8005190
+#define PIO_HEX2_BASE 0x80051d0
 #define PIO_HEX2_BIT_CLEARING_EDGE_REGISTER 0
 #define PIO_HEX2_BIT_MODIFYING_OUTPUT_REGISTER 0
 #define PIO_HEX2_CAPTURE 0
@@ -522,7 +527,7 @@
  */
 
 #define ALT_MODULE_CLASS_pio_hex3 altera_avalon_pio
-#define PIO_HEX3_BASE 0x8005180
+#define PIO_HEX3_BASE 0x80051c0
 #define PIO_HEX3_BIT_CLEARING_EDGE_REGISTER 0
 #define PIO_HEX3_BIT_MODIFYING_OUTPUT_REGISTER 0
 #define PIO_HEX3_CAPTURE 0
@@ -549,7 +554,7 @@
  */
 
 #define ALT_MODULE_CLASS_pio_hex4 altera_avalon_pio
-#define PIO_HEX4_BASE 0x8005170
+#define PIO_HEX4_BASE 0x80051b0
 #define PIO_HEX4_BIT_CLEARING_EDGE_REGISTER 0
 #define PIO_HEX4_BIT_MODIFYING_OUTPUT_REGISTER 0
 #define PIO_HEX4_CAPTURE 0
@@ -576,7 +581,7 @@
  */
 
 #define ALT_MODULE_CLASS_pio_hex5 altera_avalon_pio
-#define PIO_HEX5_BASE 0x8005160
+#define PIO_HEX5_BASE 0x80051a0
 #define PIO_HEX5_BIT_CLEARING_EDGE_REGISTER 0
 #define PIO_HEX5_BIT_MODIFYING_OUTPUT_REGISTER 0
 #define PIO_HEX5_CAPTURE 0
@@ -603,7 +608,7 @@
  */
 
 #define ALT_MODULE_CLASS_pio_led altera_avalon_pio
-#define PIO_LED_BASE 0x80051f0
+#define PIO_LED_BASE 0x8005230
 #define PIO_LED_BIT_CLEARING_EDGE_REGISTER 0
 #define PIO_LED_BIT_MODIFYING_OUTPUT_REGISTER 0
 #define PIO_LED_CAPTURE 0
@@ -630,7 +635,7 @@
  */
 
 #define ALT_MODULE_CLASS_pio_led_module altera_avalon_pio
-#define PIO_LED_MODULE_BASE 0x8005150
+#define PIO_LED_MODULE_BASE 0x8005190
 #define PIO_LED_MODULE_BIT_CLEARING_EDGE_REGISTER 0
 #define PIO_LED_MODULE_BIT_MODIFYING_OUTPUT_REGISTER 0
 #define PIO_LED_MODULE_CAPTURE 0
@@ -657,7 +662,7 @@
  */
 
 #define ALT_MODULE_CLASS_pio_pb altera_avalon_pio
-#define PIO_PB_BASE 0x80051d0
+#define PIO_PB_BASE 0x8005210
 #define PIO_PB_BIT_CLEARING_EDGE_REGISTER 0
 #define PIO_PB_BIT_MODIFYING_OUTPUT_REGISTER 0
 #define PIO_PB_CAPTURE 1
@@ -684,7 +689,7 @@
  */
 
 #define ALT_MODULE_CLASS_pio_speaker altera_avalon_pio
-#define PIO_SPEAKER_BASE 0x8005140
+#define PIO_SPEAKER_BASE 0x8005180
 #define PIO_SPEAKER_BIT_CLEARING_EDGE_REGISTER 0
 #define PIO_SPEAKER_BIT_MODIFYING_OUTPUT_REGISTER 0
 #define PIO_SPEAKER_CAPTURE 0
@@ -711,7 +716,7 @@
  */
 
 #define ALT_MODULE_CLASS_pio_sw altera_avalon_pio
-#define PIO_SW_BASE 0x80051e0
+#define PIO_SW_BASE 0x8005220
 #define PIO_SW_BIT_CLEARING_EDGE_REGISTER 0
 #define PIO_SW_BIT_MODIFYING_OUTPUT_REGISTER 0
 #define PIO_SW_CAPTURE 1
@@ -730,5 +735,31 @@
 #define PIO_SW_RESET_VALUE 0
 #define PIO_SW_SPAN 16
 #define PIO_SW_TYPE "altera_avalon_pio"
+
+
+/*
+ * rtos_timer configuration
+ *
+ */
+
+#define ALT_MODULE_CLASS_rtos_timer altera_avalon_timer
+#define RTOS_TIMER_ALWAYS_RUN 0
+#define RTOS_TIMER_BASE 0x8005020
+#define RTOS_TIMER_COUNTER_SIZE 32
+#define RTOS_TIMER_FIXED_PERIOD 0
+#define RTOS_TIMER_FREQ 50000000
+#define RTOS_TIMER_IRQ 5
+#define RTOS_TIMER_IRQ_INTERRUPT_CONTROLLER_ID 0
+#define RTOS_TIMER_LOAD_VALUE 4999
+#define RTOS_TIMER_MULT 0.001
+#define RTOS_TIMER_NAME "/dev/rtos_timer"
+#define RTOS_TIMER_PERIOD 0.1
+#define RTOS_TIMER_PERIOD_UNITS "ms"
+#define RTOS_TIMER_RESET_OUTPUT 0
+#define RTOS_TIMER_SNAPSHOT 1
+#define RTOS_TIMER_SPAN 32
+#define RTOS_TIMER_TICKS_PER_SEC 10000
+#define RTOS_TIMER_TIMEOUT_PULSE_OUTPUT 0
+#define RTOS_TIMER_TYPE "altera_avalon_timer"
 
 #endif /* __SYSTEM_H_ */
