@@ -6,7 +6,10 @@
 #include "system.h"
 #include "control.h"
 #include <unistd.h>
+<<<<<<< Updated upstream
 #include "soundeffects.h"
+=======
+>>>>>>> Stashed changes
 
 // Bit 2 (Red), Bit 1 (Yellow), Bit 0 (Green)
 static int LED_state = 0b000;
@@ -36,6 +39,7 @@ void green_light (int on_off) {
         LED_state &= ~0b001; // FIX: Clears Bit 0 (Green OFF)
     }
     IOWR_ALTERA_AVALON_PIO_DATA(PIO_LED_MODULE_BASE, LED_state);
+<<<<<<< Updated upstream
 }
 
 void game_over(int trigger)
@@ -57,6 +61,8 @@ void game_over(int trigger)
 		red_light(1);
 		sfx_end_screen();
 	}
+=======
+>>>>>>> Stashed changes
 }
 
 void eat_apple(int trigger)

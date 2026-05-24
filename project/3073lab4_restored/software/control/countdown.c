@@ -6,7 +6,10 @@
 #include "control.h"
 
 extern volatile int switch_state;
+<<<<<<< Updated upstream
 extern int translator(char a);
+=======
+>>>>>>> Stashed changes
 
 static int countdown_done = 0;
 
@@ -18,6 +21,7 @@ void countdown_init(void) {
     printf("Countdown ready...\n");
 }
 
+<<<<<<< Updated upstream
 /* ======================================================================
    UNIVERSAL BIT-BANGED TONE GENERATOR
    ====================================================================== */
@@ -38,18 +42,37 @@ int delay_one_second_with_tone(int frequency) {
         }
 
         // >>> CRITICAL FIX: Directly bit-bang the hardware pin high and low <<<
+=======
+int delay_one_second_with_tone(int frequency) {
+    int half_period = 1000000 / (frequency * 2);
+    int total_cycles = frequency;
+
+    for (int i = 0; i < total_cycles; i++) {
+        // INSTANT SAFETY CHECK: Check SW4 (0x10)
+        if (!(switch_state & 0x10)) {
+            IOWR_ALTERA_AVALON_PIO_DATA(PIO_SPEAKER_BASE, 0); // Silence immediately
+            return 1; // Abort Signal
+        }
+
+        // Directly bit-bang the hardware pin high and low
+>>>>>>> Stashed changes
         IOWR_ALTERA_AVALON_PIO_DATA(PIO_SPEAKER_BASE, 1);
         usleep(half_period);
 
         IOWR_ALTERA_AVALON_PIO_DATA(PIO_SPEAKER_BASE, 0);
         usleep(half_period);
     }
+<<<<<<< Updated upstream
     return 0; // Success
+=======
+    return 0;
+>>>>>>> Stashed changes
 }
 
 int run_synchronized_countdown(void) {
     countdown_done = 0;
 
+<<<<<<< Updated upstream
     // 1. Red Light ON + 450Hz Beep + "3" on HEX
     printf("Countdown started: 3\n");
     red_light(1); yellow_light(0); green_light(0);
@@ -73,6 +96,27 @@ int run_synchronized_countdown(void) {
     red_light(0); yellow_light(0); green_light(0);
     IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX0_BASE, translator(' '));
     if (delay_one_second_with_tone(1047)) goto abort_sequence;
+=======
+    printf("Countdown started: 3\n");
+    red_light(1); yellow_light(0); green_light(0);
+    IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX0_BASE, translator('3'));
+    if (delay_one_second_with_tone(450)) goto abort_sequence;
+
+    printf("2\n");
+    red_light(0); yellow_light(1); green_light(0);
+    IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX0_BASE, translator('2'));
+    if (delay_one_second_with_tone(450)) goto abort_sequence;
+
+    printf("1\n");
+    red_light(0); yellow_light(0); green_light(1);
+    IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX0_BASE, translator('1'));
+    if (delay_one_second_with_tone(450)) goto abort_sequence;
+
+    printf("GO!\n");
+    red_light(0); yellow_light(0); green_light(0);
+    IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX0_BASE, translator(' '));
+    if (delay_one_second_with_tone(1000)) goto abort_sequence;
+>>>>>>> Stashed changes
 
     countdown_done = 1;
     return 0; // Success
@@ -80,8 +124,13 @@ int run_synchronized_countdown(void) {
 abort_sequence:
     printf("Countdown aborted!\n");
     red_light(0); yellow_light(0); green_light(0);
+<<<<<<< Updated upstream
     IOWR_ALTERA_AVALON_PIO_DATA(PIO_SPEAKER_BASE, 0); // Ensure speaker is OFF
     IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX0_BASE, 0xFF); // Blank the HEX
+=======
+    play_speaker(1000, 0);
+    IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX0_BASE, 0xFF);
+>>>>>>> Stashed changes
     return 1; // Aborted
 }
 

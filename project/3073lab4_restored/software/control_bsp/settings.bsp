@@ -2,8 +2,13 @@
 <sch:Settings xmlns:sch="http://www.altera.com/embeddedsw/bsp/schema">
         <BspType>hal</BspType>
         <BspVersion>default</BspVersion>
+<<<<<<< Updated upstream
         <BspGeneratedTimeStamp>May 23, 2026 3:56:38 PM</BspGeneratedTimeStamp>
         <BspGeneratedUnixTimeStamp>1779522998649</BspGeneratedUnixTimeStamp>
+=======
+        <BspGeneratedTimeStamp>May 23, 2026 3:34:33 PM</BspGeneratedTimeStamp>
+        <BspGeneratedUnixTimeStamp>1779521673490</BspGeneratedUnixTimeStamp>
+>>>>>>> Stashed changes
         <BspGeneratedLocation>C:\ECE3073\ECE4078_Lab_2025\ECE3073-Project2025-Lab02-Group4\project\3073lab4_restored\software\control_bsp</BspGeneratedLocation>
         <BspSettingsFile>settings.bsp</BspSettingsFile>
         <SopcDesignFile>..\..\NIOSII_WEEK3.sopcinfo</SopcDesignFile>

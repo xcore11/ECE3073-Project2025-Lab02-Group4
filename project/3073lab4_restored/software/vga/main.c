@@ -16,16 +16,25 @@
 #include "debug.h"
 #include "ship.h"
 
+<<<<<<< Updated upstream
 /* REMOVED: Direct accel_init() and accel_read() prototypes.
    The Control Core handles physical hardware. This core reads from shared memory.
 */
+=======
+/* accel.c provides these functions; keep prototypes here so this file does not
+   depend on a separate accel.h existing in the Nios project. */
+extern int accel_init(void);
+extern int accel_read_x(alt_32 *x);
+extern int accel_read_y(alt_32 *y);
+extern int accel_read_z(alt_32 *z);
+>>>>>>> Stashed changes
 
 #define VGA_IRQ_IRQ_RX 1
 #define VGA_IRQ_IRQ_RX_INTERRUPT_CONTROLLER_ID 0
 #define VGA_IRQ_RX_BASE 0x9060
 #define VGA_IRQ_RX_ACTIVE_MASK 0x01
 
-#define SHARED_FLAGS_BASE              0x05212000
+#define SYSTEM_FLAGS_BASE              0x05212000
 #define FLAG_SYSTEM_MAGIC              0x00
 #define FLAG_SESSION_STARTED           0x04
 #define FLAG_IMAGE_PROCESSOR_READY     0x08
@@ -64,7 +73,9 @@
 #define CONTROL_KEY0_MASK               0x00000001u
 #define CONTROL_KEY1_MASK               0x00000002u
 #define CONTROL_SW_MASK                 0x000003FFu
-#define CONTROL_SW9_MASK                0x00000200u
+
+/* INTEGRATION FIX: Changed dominant control switch from SW9 to SW4 */
+#define CONTROL_SW4_MASK                0x00000010u
 
 #define GAME_MODE_MENU                  0
 #define GAME_MODE_SNAKE                 1
@@ -93,12 +104,12 @@ static int selected_menu_index = 0;
 
 static void shared_write_u32(uint32_t offset, uint32_t value)
 {
-    IOWR_32DIRECT(SHARED_FLAGS_BASE, offset, value);
+    IOWR_32DIRECT(SYSTEM_FLAGS_BASE, offset, value);
 }
 
 static uint32_t shared_read_u32(uint32_t offset)
 {
-    return IORD_32DIRECT(SHARED_FLAGS_BASE, offset);
+    return IORD_32DIRECT(SYSTEM_FLAGS_BASE, offset);
 }
 
 static void shared_flags_init_for_vga(void)
@@ -277,7 +288,8 @@ static void handle_irq_button_action(void)
         printf("VGA control switch update: SW=0x%03lX\n", (unsigned long)vga_irq_switch_state);
         fflush(stdout);
 
-        if ((vga_irq_switch_state & CONTROL_SW9_MASK) != 0 && current_screen != SCREEN_MENU)
+        /* INTEGRATION FIX: If SW4 goes low (flipped down) while inside a game, immediately escape to menu */
+        if ((vga_irq_switch_state & CONTROL_SW4_MASK) == 0 && current_screen != SCREEN_MENU)
         {
             shared_write_u32(FLAG_MENU_EXIT_EVENT, shared_read_u32(FLAG_MENU_EXIT_EVENT) + 1);
             enter_screen(SCREEN_MENU);
@@ -307,15 +319,19 @@ static void handle_irq_button_action(void)
     }
     else if (current_screen == SCREEN_SNAKE)
     {
+<<<<<<< Updated upstream
+=======
+        /* KEY1/KEY0 still handle retry prompts when lost */
+>>>>>>> Stashed changes
         if (key_mask & (CONTROL_KEY0_MASK | CONTROL_KEY1_MASK))
         {
             if (snake_is_lost())
             {
-                snake_handle_button();  /* retry, returns 0 */
+                snake_handle_button();
             }
             else
             {
-                printf("Snake key consumed during live game; use SW9 for menu\n");
+                printf("Snake key consumed during live game; use SW4 for menu\n");
                 fflush(stdout);
             }
         }
@@ -324,7 +340,7 @@ static void handle_irq_button_action(void)
     {
         if (key_mask & CONTROL_KEY1_MASK)
         {
-            printf("Draw KEY1 consumed; use SW9 to return to menu\n");
+            printf("Draw KEY1 consumed; use SW4 to return to menu\n");
             fflush(stdout);
         }
     }
@@ -339,6 +355,7 @@ static void handle_irq_button_action(void)
     }
 }
 
+<<<<<<< Updated upstream
 // Add this tracker variable right above the function
 static int system_was_off = 0;
 
@@ -346,6 +363,56 @@ static void update_current_screen(void)
 {
     // Read System Power Flag updated via SW4
     uint32_t system_on = shared_read_u32(FLAG_SYSTEM_POWER);
+=======
+// Add this latch variable outside the function to track the power state
+static int is_powered_off = 0;
+
+static void update_current_screen(void)
+{
+    /* MASTER DOMINANCE SYSTEM: Read live switch configurations from shared memory */
+    uint32_t live_switches = shared_read_u32(FLAG_CONTROL_SWITCH_STATE) & CONTROL_SW_MASK;
+
+    /* If SW4 is 0 (Flipped DOWN), the system forces a dark mode shutdown state */
+    if (!(live_switches & 0x10)) // 0x10 is the SW4 Mask
+    {
+        // Only flood the VGA bus with black pixels ONCE when shutting down
+        if (!is_powered_off) {
+            vga_fill_background(0x00);
+            is_powered_off = 1;
+        }
+
+        // Quietly drop any game context so that when SW4 turns back on, it loads a clean menu
+        if (current_screen != SCREEN_MENU)
+        {
+            current_screen = SCREEN_MENU;
+            shared_write_u32(FLAG_CURRENT_GAME, GAME_MODE_MENU);
+            shared_write_u32(FLAG_GAME_RUNNING, 0);
+        }
+
+        usleep(50000); // Graceful throttle on the shared bus
+        return; // <-- CRITICAL: Bypass the rest of the drawing logic
+    }
+
+    /* >>> WAKE UP SEQUENCE: If we just flipped SW4 UP, force a screen redraw! <<< */
+    if (is_powered_off) {
+        is_powered_off = 0;
+        if (current_screen == SCREEN_MENU) {
+            menu_draw(selected_menu_index); // Instantly paint the menu back on screen
+        }
+    }
+
+    /* Normal runtime environment active only if SW4 is flipped UP */
+    if (current_screen == SCREEN_MENU)
+        update_menu_navigation();
+    else if (current_screen == SCREEN_BATTLE)
+        ship_game_update();
+    else if (current_screen == SCREEN_SNAKE)
+        snake_update();
+    else if (current_screen == SCREEN_DRAW)
+        draw_game_update();
+    else if (current_screen == SCREEN_DEBUG)
+        debug_update();
+>>>>>>> Stashed changes
 
     if (!system_on) {
         vga_fill_background(0x00);
@@ -424,7 +491,6 @@ static void update_current_screen(void)
         usleep(200000); // 200ms debounce
     }
 }
-
 int main(void)
 {
     vga_init();

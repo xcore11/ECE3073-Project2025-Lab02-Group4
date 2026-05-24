@@ -5,30 +5,43 @@
 #include "system.h"
 #include "altera_avalon_pio_regs.h"
 #include "control.h"
+<<<<<<< Updated upstream
 #include "soundeffects.h"
+=======
+#include "countdown.h"
+>>>>>>> Stashed changes
 
 #define USER_MESSAGE "I Love NIOS"
 #define USER_MESSAGE_LENGTH 16
 
 #define TRAFFIC_THRESHOLD 20000
+<<<<<<< Updated upstream
 #define ACCEL_THRESHOLD 5000
 extern handle_snake_game_switch();
 extern handle_switch9();
+=======
+#define ACCEL_THRESHOLD 50000
+>>>>>>> Stashed changes
 
 int main(void)
 {
     control_shared_flags_init();
-    // Setup Traffic Light
-    int traffic_counter = 0;
-    int traffic_state = 0;   /* 0=green, 1=yellow, 2=red */
 
+<<<<<<< Updated upstream
     /* initial traffic light */
+=======
+    // Setup Traffic Light
+>>>>>>> Stashed changes
     green_light(0);
     yellow_light(0);
     red_light(0);
 
+<<<<<<< Updated upstream
     // Setup the switch and key interrupts
     sound_init();
+=======
+    // Setup the switch, key, and comms interrupts
+>>>>>>> Stashed changes
     switch_setup();
     key_setup();
     img_rx_setup();
@@ -38,16 +51,17 @@ int main(void)
 
     while (1)
     {
-    	// Key Operations
-    	handle_key1();
-    	handle_key2();
+        // Key Operations
+        handle_key1();
+        handle_key2();
 
         // Flag Switch and Reset HEX
         HEX_enable();
 
-        // Handle CPU and Speaker switch
-        handle_switch2("TEST123");
+        // Handle Switch states
+        handle_switch2(USER_MESSAGE); // Fed the constant instead of a random hardcode
         handle_switch3();
+<<<<<<< Updated upstream
         handle_switch4();
         handle_snake_game_switch();
         handle_switch9();
@@ -137,6 +151,10 @@ int main(void)
            red_light(0);
            green_light(0);
            }
+=======
+        // Handle Game State Machine
+        handle_snake_game_switch();
+>>>>>>> Stashed changes
     }
     return 0;
 }
