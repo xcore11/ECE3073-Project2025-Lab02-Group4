@@ -5,7 +5,7 @@
 
 /* shared SDRAM control flags */
 #ifndef SHARED_FLAGS_BASE
-#define SHARED_FLAGS_BASE              0x05212000
+#define CONTROL_START_FLAGS_BASE               0x06000000
 #endif
 
 #define FLAG_CONTROL_PROCESSOR_READY   0x10
@@ -16,6 +16,10 @@
 #define FLAG_CONTROL_SWITCH_EVENT_SEQ  0x810
 #define FLAG_CONTROL_LAST_EVENT_TYPE   0x814
 #define FLAG_CONTROL_LAST_EVENT_VALUE  0x818
+#define FLAG_CONTROL_SPEAKER_OPTION	   0x81C
+#define FLAG_CONTROL_LED_MODULE		   0x820
+#define FLAG_CONTROL_LEDR			   0x824
+#define FLAG_CONTROL_MESSAGE		   0x828 // Save 68 bytes incase for 64 byte message (0x86C is next address)
 
 #define CONTROL_EVENT_NONE             0
 #define CONTROL_EVENT_KEY              1
@@ -26,6 +30,8 @@
 #define CONTROL_KEY_MASK               0x00000003u
 #define CONTROL_SW_MASK                0x000003FFu
 
+// for the extern semaphore
+#include "includes.h"
 ///* =========================
 //   Direct hardware base defines
 //   ========================= */
@@ -49,7 +55,8 @@
 //#define PIO_PIXELDATA_BASE 0x9070
 //#define PIO_WREN_BASE 0x9040
 
-// original switch header and more ...
+// semaphore
+extern OS_EVENT *input_update_sem;
 
 /* existing switch_key functions / HEX functions */
 void control_shared_flags_init(void);
@@ -59,11 +66,8 @@ void switch_setup(void);
 void key_setup(void);
 void img_rx_setup(void);
 void vga_rx_setup(void);
-void HEX_enable(void);
-void handle_key1(void);
-void handle_key2(void);
-void handle_switch2(const char *message);
-void handle_switch3(void);
+void input_task(void* pdata);
+void HEX_task(void* pdata);
 void handle_switch4(void);
 int translator(char a);
 

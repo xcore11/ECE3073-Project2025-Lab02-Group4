@@ -6,20 +6,20 @@
 #include <stdio.h>
 #include <string.h>
 #include "control.h"
+#include "includes.h"
+
 volatile int switch_state = 0;
 volatile int key_state = 0;
 volatile int GPIO_state = 0;
 static int HEX_enable_bit = 0;
-static int scroll_counter = 0;
 static int scroll_offset = 0;
-const int scroll_speed = 2000;
 
 static uint32_t control_event_seq = 0;
 static uint32_t control_switch_event_seq = 0;
 
 static void shared_write32(uint32_t offset, uint32_t value)
 {
-    IOWR_32DIRECT(SHARED_FLAGS_BASE, offset, value);
+    IOWR_32DIRECT(CONTROL_START_FLAGS_BASE, offset, value);
 }
 
 uint32_t control_get_switch_state(void)
@@ -87,8 +87,35 @@ static void switch_isr(void* context) {
 
     // Updates the switch switch_state and publishes SW0..SW9 to shared SDRAM.
     switch_state = IORD_ALTERA_AVALON_PIO_DATA(PIO_SW_BASE) & CONTROL_SW_MASK;
-    publish_control_event(CONTROL_EVENT_SWITCH, (uint32_t)switch_state, 0);
-    notify_img_and_vga_processors();
+
+    // Informs task that input is updated
+    OSSemPost(input_update_sem);
+}
+
+void input_task (void* pdata) {
+    INT8U err;
+    while (1)
+    {
+        // To put the task on pend unless updated by ISR
+        OSSemPend(input_update_sem, 0, &err);
+
+        // Switch event
+        publish_control_event(CONTROL_EVENT_SWITCH, (uint32_t)switch_state, 0);
+
+        // Key events
+        if ((~key_state) & CONTROL_KEY0_MASK) {
+            publish_control_event(CONTROL_EVENT_KEY, CONTROL_KEY0_MASK, CONTROL_KEY0_MASK);
+            key_state = (key_state | CONTROL_KEY0_MASK) & CONTROL_KEY_MASK;
+        }
+
+        if ((~key_state) & CONTROL_KEY1_MASK) {
+            publish_control_event(CONTROL_EVENT_KEY, CONTROL_KEY1_MASK, CONTROL_KEY1_MASK);
+            key_state = (key_state | CONTROL_KEY1_MASK) & CONTROL_KEY_MASK;
+        }
+
+        // Notify other processors
+        notify_img_and_vga_processors();
+    }
 }
 
 void switch_setup(void) {
@@ -117,6 +144,9 @@ static void key_isr(void* context) {
 
     // Updates the key key_state
     key_state = IORD_ALTERA_AVALON_PIO_DATA(PIO_PB_BASE) & CONTROL_KEY_MASK;
+
+    // Informs task that the input is updated
+    OSSemPost(input_update_sem);
 }
 
 void key_setup(void) {
@@ -157,8 +187,8 @@ void img_rx_setup(void) {
 
     // Register the ISR with the processor
     alt_ic_isr_register(
-    	CON_IMG_IRQ_RX_IRQ_INTERRUPT_CONTROLLER_ID,
-		CON_IMG_IRQ_RX_IRQ,
+        CON_IMG_IRQ_RX_IRQ_INTERRUPT_CONTROLLER_ID,
+        CON_IMG_IRQ_RX_IRQ,
         img_rx_isr,
         NULL,
         NULL
@@ -183,74 +213,46 @@ void vga_rx_setup(void) {
 
     // Register the ISR with the processor
     alt_ic_isr_register(
-    	CON_VGA_IRQ_RX_IRQ_INTERRUPT_CONTROLLER_ID,
-		CON_VGA_IRQ_RX_IRQ,
+        CON_VGA_IRQ_RX_IRQ_INTERRUPT_CONTROLLER_ID,
+        CON_VGA_IRQ_RX_IRQ,
         vga_rx_isr,
         NULL,
         NULL
     );
 }
 
-void handle_key1(void)
-{
-    /* Physical KEY0. Published to both IMG and VGA.
-       - Before session start: IMG uses it as session-start.
-       - In Debug panel: IMG uses it as image-capture request. */
-	if ((~key_state) & CONTROL_KEY0_MASK)
-	{
-        publish_control_event(CONTROL_EVENT_KEY, CONTROL_KEY0_MASK, CONTROL_KEY0_MASK);
-        notify_img_and_vga_processors();
-		key_state = (key_state | CONTROL_KEY0_MASK) & CONTROL_KEY_MASK;
-	}
-}
+void HEX_task(void* pdata) {
+    char padded_message[64];
+    int msg_len = 0;
 
-void handle_key2(void)
-{
-    /* Physical KEY1. Published to both IMG and VGA.
-       - Menu/Snake VGA uses it as the action button.
-       - Debug VGA uses it to accept the latest image as Draw background. */
-	if ((~key_state) & CONTROL_KEY1_MASK)
-	{
-        publish_control_event(CONTROL_EVENT_KEY, CONTROL_KEY1_MASK, CONTROL_KEY1_MASK);
-        notify_img_and_vga_processors();
-		key_state = (key_state | CONTROL_KEY1_MASK) & CONTROL_KEY_MASK;
-	}
-}
+    while(1) {
 
-void HEX_enable(void)
-{
-    if (switch_state & 0x01) {
-        HEX_enable_bit = 1;
-    } else {
-        IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX0_BASE, 0xFF);
-        IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX1_BASE, 0xFF);
-        IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX2_BASE, 0xFF);
-        IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX3_BASE, 0xFF);
-        IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX4_BASE, 0xFF);
-        IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX5_BASE, 0xFF);
-
-        HEX_enable_bit = 0;
-        scroll_counter = 0;
-        scroll_offset = 0;
-    }
-}
-
-void handle_switch2(const char *message)
-{
-    if ((switch_state & 0x02) && HEX_enable_bit) {
-        char padded_message[64];
-        int msg_len;
-
-        if (message == 0) {
-            message = "";
+        // Switch 1
+        if (switch_state & 0x01) {
+            HEX_enable_bit = 1;
+        } else {
+            HEX_enable_bit = 0;
+            // Turn off displays
+            IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX0_BASE, 0xFF);
+            IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX1_BASE, 0xFF);
+            IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX2_BASE, 0xFF);
+            IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX3_BASE, 0xFF);
+            IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX4_BASE, 0xFF);
+            IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX5_BASE, 0xFF);
         }
 
-        snprintf(padded_message, sizeof(padded_message), "    %s    ", message);
-        msg_len = strlen(padded_message);
+        // Switch 2
+        if (HEX_enable_bit && (switch_state & 0x02)) {
+            IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX1_BASE, 0xFF);
+            IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX0_BASE, 0xFF);
 
-        scroll_counter++;
+            // pending
+            const char* message = "test123";
+            if (message == 0) message = "";
 
-        if (scroll_counter >= scroll_speed) {
+            snprintf(padded_message, sizeof(padded_message), "    %s    ", message);
+            msg_len = strlen(padded_message);
+
             char c5 = padded_message[scroll_offset];
             char c4 = padded_message[scroll_offset + 1];
             char c3 = padded_message[scroll_offset + 2];
@@ -266,38 +268,47 @@ void handle_switch2(const char *message)
                 scroll_offset = 0;
             }
 
-            scroll_counter = 0;
+            // (period of 200 ms = frequency of 5 Hz)
+            OSTimeDlyHMSM(0, 0, 0, 200);
+
         }
-    } else {
-        IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX5_BASE, 0xFF);
-        IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX4_BASE, 0xFF);
-        IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX3_BASE, 0xFF);
-        IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX2_BASE, 0xFF);
 
-        scroll_counter = 0;
-        scroll_offset = 0;
-    }
-}
+        // Switch 3
+        else if (HEX_enable_bit && (switch_state & 0x04)) {
+            IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX5_BASE, 0xFF);
+            IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX4_BASE, 0xFF);
+            IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX3_BASE, 0xFF);
+            IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX2_BASE, 0xFF);
 
-void handle_switch3(void)
-{
-    if ((switch_state & 0x04) && HEX_enable_bit) {
-        /* placeholder CPU utilization */
-        IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX1_BASE, translator('8'));
-        IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX0_BASE, translator('7'));
-    } else {
-        IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX1_BASE, 0xFF);
-        IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX0_BASE, 0xFF);
+            IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX1_BASE, translator('8'));
+            IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX0_BASE, translator('7'));
+
+            // (period of 500 ms = frequency of 2 Hz)
+            OSTimeDlyHMSM(0, 0, 0, 500);
+        }
+
+        // Sleep and wait
+        else {
+            if (HEX_enable_bit) {
+                IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX5_BASE, 0xFF);
+                IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX4_BASE, 0xFF);
+                IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX3_BASE, 0xFF);
+                IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX2_BASE, 0xFF);
+                IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX1_BASE, 0xFF);
+                IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX0_BASE, 0xFF);
+            }
+            OSTimeDlyHMSM(0, 0, 0, 100);
+        }
     }
 }
 
 void handle_switch4(void)
 {
-	if (switch_state & 0x08) {
-		play_speaker(1000, 1);
-	} else {
-		play_speaker(1000, 0);
-	}
+    if (switch_state & 0x08) {
+        play_speaker(1000, 1);
+    } else {
+        play_speaker(1000, 0);
+    }
 }
 
 int translator(char a)

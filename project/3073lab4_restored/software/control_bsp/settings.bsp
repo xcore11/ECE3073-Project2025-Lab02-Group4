@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <sch:Settings xmlns:sch="http://www.altera.com/embeddedsw/bsp/schema">
-        <BspType>hal</BspType>
+        <BspType>ucosii</BspType>
         <BspVersion>default</BspVersion>
-        <BspGeneratedTimeStamp>May 23, 2026 3:32:19 AM</BspGeneratedTimeStamp>
-        <BspGeneratedUnixTimeStamp>1779478339463</BspGeneratedUnixTimeStamp>
-        <BspGeneratedLocation>C:\temp\ECE3073-Project2025-Lab02-Group4\project\3073lab4_restored\software\control_bsp</BspGeneratedLocation>
+        <BspGeneratedTimeStamp>May 24, 2026 3:09:15 PM</BspGeneratedTimeStamp>
+        <BspGeneratedUnixTimeStamp>1779606555732</BspGeneratedUnixTimeStamp>
+        <BspGeneratedLocation>C:\Users\User\Documents\GitHub\ECE3073-Project2025-Lab02-Group4\project\3073lab4_restored\software\control_bsp</BspGeneratedLocation>
         <BspSettingsFile>settings.bsp</BspSettingsFile>
         <SopcDesignFile>..\..\NIOSII_WEEK3.sopcinfo</SopcDesignFile>
         <JdiFile>default</JdiFile>
@@ -14,7 +14,7 @@
                 <SettingName>hal.sys_clk_timer</SettingName>
                 <Identifier>ALT_SYS_CLK</Identifier>
                 <Type>UnquotedString</Type>
-                <Value>none</Value>
+                <Value>rtos_timer</Value>
                 <DefaultValue>none</DefaultValue>
                 <DestinationFile>system_h_define</DestinationFile>
                 <Description>Slave descriptor of the system clock timer device. This device provides a periodic interrupt ("tick") and is typically required for RTOS use. This setting defines the value of ALT_SYS_CLK in system.h.</Description>
@@ -875,6 +875,846 @@
                 <Group>none</Group>
         </Setting>
         <Setting>
+                <SettingName>ucosii.os_max_tasks</SettingName>
+                <Identifier>OS_MAX_TASKS</Identifier>
+                <Type>DecimalNumber</Type>
+                <Value>10</Value>
+                <DefaultValue>10</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Maximum number of tasks</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.os_lowest_prio</SettingName>
+                <Identifier>OS_LOWEST_PRIO</Identifier>
+                <Type>DecimalNumber</Type>
+                <Value>20</Value>
+                <DefaultValue>20</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Lowest assignable priority</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.os_thread_safe_newlib</SettingName>
+                <Identifier>OS_THREAD_SAFE_NEWLIB</Identifier>
+                <Type>Boolean</Type>
+                <Value>1</Value>
+                <DefaultValue>1</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Thread safe C library</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.miscellaneous.os_arg_chk_en</SettingName>
+                <Identifier>OS_ARG_CHK_EN</Identifier>
+                <Type>Boolean</Type>
+                <Value>1</Value>
+                <DefaultValue>1</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Enable argument checking</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.miscellaneous.os_cpu_hooks_en</SettingName>
+                <Identifier>OS_CPU_HOOKS_EN</Identifier>
+                <Type>Boolean</Type>
+                <Value>1</Value>
+                <DefaultValue>1</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Enable uCOS-II hooks</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.miscellaneous.os_debug_en</SettingName>
+                <Identifier>OS_DEBUG_EN</Identifier>
+                <Type>Boolean</Type>
+                <Value>1</Value>
+                <DefaultValue>1</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Enable debug variables</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.miscellaneous.os_sched_lock_en</SettingName>
+                <Identifier>OS_SCHED_LOCK_EN</Identifier>
+                <Type>Boolean</Type>
+                <Value>1</Value>
+                <DefaultValue>1</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Include code for OSSchedLock() and OSSchedUnlock()</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.miscellaneous.os_task_stat_en</SettingName>
+                <Identifier>OS_TASK_STAT_EN</Identifier>
+                <Type>Boolean</Type>
+                <Value>1</Value>
+                <DefaultValue>1</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Enable statistics task</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.miscellaneous.os_task_stat_stk_chk_en</SettingName>
+                <Identifier>OS_TASK_STAT_STK_CHK_EN</Identifier>
+                <Type>Boolean</Type>
+                <Value>1</Value>
+                <DefaultValue>1</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Check task stacks from statistics task</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.miscellaneous.os_tick_step_en</SettingName>
+                <Identifier>OS_TICK_STEP_EN</Identifier>
+                <Type>Boolean</Type>
+                <Value>1</Value>
+                <DefaultValue>1</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Enable tick stepping feature for uCOS-View</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.miscellaneous.os_event_name_size</SettingName>
+                <Identifier>OS_EVENT_NAME_SIZE</Identifier>
+                <Type>DecimalNumber</Type>
+                <Value>32</Value>
+                <DefaultValue>32</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Size of name of Event Control Block groups</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.miscellaneous.os_max_events</SettingName>
+                <Identifier>OS_MAX_EVENTS</Identifier>
+                <Type>DecimalNumber</Type>
+                <Value>60</Value>
+                <DefaultValue>60</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Maximum number of event control blocks</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.miscellaneous.os_task_idle_stk_size</SettingName>
+                <Identifier>OS_TASK_IDLE_STK_SIZE</Identifier>
+                <Type>DecimalNumber</Type>
+                <Value>512</Value>
+                <DefaultValue>512</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Idle task stack size</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.miscellaneous.os_task_stat_stk_size</SettingName>
+                <Identifier>OS_TASK_STAT_STK_SIZE</Identifier>
+                <Type>DecimalNumber</Type>
+                <Value>512</Value>
+                <DefaultValue>512</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Statistics task stack size</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.task.os_task_change_prio_en</SettingName>
+                <Identifier>OS_TASK_CHANGE_PRIO_EN</Identifier>
+                <Type>Boolean</Type>
+                <Value>1</Value>
+                <DefaultValue>1</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Include code for OSTaskChangePrio()</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.task.os_task_create_en</SettingName>
+                <Identifier>OS_TASK_CREATE_EN</Identifier>
+                <Type>Boolean</Type>
+                <Value>1</Value>
+                <DefaultValue>1</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Include code for OSTaskCreate()</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.task.os_task_create_ext_en</SettingName>
+                <Identifier>OS_TASK_CREATE_EXT_EN</Identifier>
+                <Type>Boolean</Type>
+                <Value>1</Value>
+                <DefaultValue>1</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Include code for OSTaskCreateExt()</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.task.os_task_del_en</SettingName>
+                <Identifier>OS_TASK_DEL_EN</Identifier>
+                <Type>Boolean</Type>
+                <Value>1</Value>
+                <DefaultValue>1</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Include code for OSTaskDel()</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.task.os_task_name_size</SettingName>
+                <Identifier>OS_TASK_NAME_SIZE</Identifier>
+                <Type>DecimalNumber</Type>
+                <Value>32</Value>
+                <DefaultValue>32</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Size of task name</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.task.os_task_profile_en</SettingName>
+                <Identifier>OS_TASK_PROFILE_EN</Identifier>
+                <Type>Boolean</Type>
+                <Value>1</Value>
+                <DefaultValue>1</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Include data structure for run-time task profiling</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.task.os_task_query_en</SettingName>
+                <Identifier>OS_TASK_QUERY_EN</Identifier>
+                <Type>Boolean</Type>
+                <Value>1</Value>
+                <DefaultValue>1</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Include code for OSTaskQuery</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.task.os_task_suspend_en</SettingName>
+                <Identifier>OS_TASK_SUSPEND_EN</Identifier>
+                <Type>Boolean</Type>
+                <Value>1</Value>
+                <DefaultValue>1</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Include code for OSTaskSuspend() and OSTaskResume()</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.task.os_task_sw_hook_en</SettingName>
+                <Identifier>OS_TASK_SW_HOOK_EN</Identifier>
+                <Type>Boolean</Type>
+                <Value>1</Value>
+                <DefaultValue>1</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Include code for OSTaskSwHook()</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.time.os_time_tick_hook_en</SettingName>
+                <Identifier>OS_TIME_TICK_HOOK_EN</Identifier>
+                <Type>Boolean</Type>
+                <Value>1</Value>
+                <DefaultValue>1</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Include code for OSTimeTickHook()</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.time.os_time_dly_resume_en</SettingName>
+                <Identifier>OS_TIME_DLY_RESUME_EN</Identifier>
+                <Type>Boolean</Type>
+                <Value>1</Value>
+                <DefaultValue>1</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Include code for OSTimeDlyResume()</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.time.os_time_dly_hmsm_en</SettingName>
+                <Identifier>OS_TIME_DLY_HMSM_EN</Identifier>
+                <Type>Boolean</Type>
+                <Value>1</Value>
+                <DefaultValue>1</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Include code for OSTimeDlyHMSM()</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.time.os_time_get_set_en</SettingName>
+                <Identifier>OS_TIME_GET_SET_EN</Identifier>
+                <Type>Boolean</Type>
+                <Value>1</Value>
+                <DefaultValue>1</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Include code for OSTimeGet and OSTimeSet()</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.os_flag_en</SettingName>
+                <Identifier>OS_FLAG_EN</Identifier>
+                <Type>Boolean</Type>
+                <Value>1</Value>
+                <DefaultValue>1</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Enable code for Event Flags. CAUTION: This is required by the HAL and many Altera device drivers.</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.event_flag.os_flag_wait_clr_en</SettingName>
+                <Identifier>OS_FLAG_WAIT_CLR_EN</Identifier>
+                <Type>Boolean</Type>
+                <Value>1</Value>
+                <DefaultValue>1</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Include code for Wait on Clear Event Flags. CAUTION: This is required by the HAL and many Altera device drivers.</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.event_flag.os_flag_accept_en</SettingName>
+                <Identifier>OS_FLAG_ACCEPT_EN</Identifier>
+                <Type>Boolean</Type>
+                <Value>1</Value>
+                <DefaultValue>1</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Include code for OSFlagAccept(). CAUTION: This is required by the HAL and many Altera device drivers.</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.event_flag.os_flag_del_en</SettingName>
+                <Identifier>OS_FLAG_DEL_EN</Identifier>
+                <Type>Boolean</Type>
+                <Value>1</Value>
+                <DefaultValue>1</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Include code for OSFlagDel(). CAUTION: This is required by the HAL and many Altera device drivers.</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.event_flag.os_flag_query_en</SettingName>
+                <Identifier>OS_FLAG_QUERY_EN</Identifier>
+                <Type>Boolean</Type>
+                <Value>1</Value>
+                <DefaultValue>1</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Include code for OSFlagQuery(). CAUTION: This is required by the HAL and many Altera device drivers.</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.event_flag.os_flag_name_size</SettingName>
+                <Identifier>OS_FLAG_NAME_SIZE</Identifier>
+                <Type>DecimalNumber</Type>
+                <Value>32</Value>
+                <DefaultValue>32</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Size of name of Event Flags group. CAUTION: This is required by the HAL and many Altera device drivers; use caution in reducing this value.</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.event_flag.os_flags_nbits</SettingName>
+                <Identifier>OS_FLAGS_NBITS</Identifier>
+                <Type>DecimalNumber</Type>
+                <Value>16</Value>
+                <DefaultValue>16</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Event Flag bits (8,16,32). CAUTION: This is required by the HAL and many Altera device drivers; use caution in changing this value.</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.event_flag.os_max_flags</SettingName>
+                <Identifier>OS_MAX_FLAGS</Identifier>
+                <Type>DecimalNumber</Type>
+                <Value>20</Value>
+                <DefaultValue>20</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Maximum number of Event Flags groups. CAUTION: This is required by the HAL and many Altera device drivers; use caution in reducing this value.</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.os_mutex_en</SettingName>
+                <Identifier>OS_MUTEX_EN</Identifier>
+                <Type>Boolean</Type>
+                <Value>1</Value>
+                <DefaultValue>1</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Enable code for Mutex Semaphores</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.mutex.os_mutex_accept_en</SettingName>
+                <Identifier>OS_MUTEX_ACCEPT_EN</Identifier>
+                <Type>Boolean</Type>
+                <Value>1</Value>
+                <DefaultValue>1</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Include code for OSMutexAccept()</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.mutex.os_mutex_del_en</SettingName>
+                <Identifier>OS_MUTEX_DEL_EN</Identifier>
+                <Type>Boolean</Type>
+                <Value>1</Value>
+                <DefaultValue>1</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Include code for OSMutexDel()</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.mutex.os_mutex_query_en</SettingName>
+                <Identifier>OS_MUTEX_QUERY_EN</Identifier>
+                <Type>Boolean</Type>
+                <Value>1</Value>
+                <DefaultValue>1</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Include code for OSMutexQuery</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.os_sem_en</SettingName>
+                <Identifier>OS_SEM_EN</Identifier>
+                <Type>Boolean</Type>
+                <Value>1</Value>
+                <DefaultValue>1</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Enable code for semaphores. CAUTION: This is required by the HAL and many Altera device drivers.</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.semaphore.os_sem_accept_en</SettingName>
+                <Identifier>OS_SEM_ACCEPT_EN</Identifier>
+                <Type>Boolean</Type>
+                <Value>1</Value>
+                <DefaultValue>1</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Include code for OSSemAccept(). CAUTION: This is required by the HAL and many Altera device drivers.</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.semaphore.os_sem_set_en</SettingName>
+                <Identifier>OS_SEM_SET_EN</Identifier>
+                <Type>Boolean</Type>
+                <Value>1</Value>
+                <DefaultValue>1</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Include code for OSSemSet(). CAUTION: This is required by the HAL and many Altera device drivers.</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.semaphore.os_sem_del_en</SettingName>
+                <Identifier>OS_SEM_DEL_EN</Identifier>
+                <Type>Boolean</Type>
+                <Value>1</Value>
+                <DefaultValue>1</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Include code for OSSemDel(). CAUTION: This is required by the HAL and many Altera device drivers.</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.semaphore.os_sem_query_en</SettingName>
+                <Identifier>OS_SEM_QUERY_EN</Identifier>
+                <Type>Boolean</Type>
+                <Value>1</Value>
+                <DefaultValue>1</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Include code for OSSemQuery(). CAUTION: This is required by the HAL and many Altera device drivers.</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.os_mbox_en</SettingName>
+                <Identifier>OS_MBOX_EN</Identifier>
+                <Type>Boolean</Type>
+                <Value>1</Value>
+                <DefaultValue>1</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Enable code for mailboxes</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.mailbox.os_mbox_accept_en</SettingName>
+                <Identifier>OS_MBOX_ACCEPT_EN</Identifier>
+                <Type>Boolean</Type>
+                <Value>1</Value>
+                <DefaultValue>1</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Include code for OSMboxAccept()</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.mailbox.os_mbox_del_en</SettingName>
+                <Identifier>OS_MBOX_DEL_EN</Identifier>
+                <Type>Boolean</Type>
+                <Value>1</Value>
+                <DefaultValue>1</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Include code for OSMboxDel()</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.mailbox.os_mbox_post_en</SettingName>
+                <Identifier>OS_MBOX_POST_EN</Identifier>
+                <Type>Boolean</Type>
+                <Value>1</Value>
+                <DefaultValue>1</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Include code for OSMboxPost()</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.mailbox.os_mbox_post_opt_en</SettingName>
+                <Identifier>OS_MBOX_POST_OPT_EN</Identifier>
+                <Type>Boolean</Type>
+                <Value>1</Value>
+                <DefaultValue>1</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Include code for OSMboxPostOpt()</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.mailbox.os_mbox_query_en</SettingName>
+                <Identifier>OS_MBOX_QUERY_EN</Identifier>
+                <Type>Boolean</Type>
+                <Value>1</Value>
+                <DefaultValue>1</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Include code for OSMboxQuery()</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.os_q_en</SettingName>
+                <Identifier>OS_Q_EN</Identifier>
+                <Type>Boolean</Type>
+                <Value>1</Value>
+                <DefaultValue>1</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Enable code for Queues</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.queue.os_q_accept_en</SettingName>
+                <Identifier>OS_Q_ACCEPT_EN</Identifier>
+                <Type>Boolean</Type>
+                <Value>1</Value>
+                <DefaultValue>1</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Include code for OSQAccept()</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.queue.os_q_del_en</SettingName>
+                <Identifier>OS_Q_DEL_EN</Identifier>
+                <Type>Boolean</Type>
+                <Value>1</Value>
+                <DefaultValue>1</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Include code for OSQDel()</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.queue.os_q_flush_en</SettingName>
+                <Identifier>OS_Q_FLUSH_EN</Identifier>
+                <Type>Boolean</Type>
+                <Value>1</Value>
+                <DefaultValue>1</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Include code for OSQFlush()</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.queue.os_q_post_en</SettingName>
+                <Identifier>OS_Q_POST_EN</Identifier>
+                <Type>Boolean</Type>
+                <Value>1</Value>
+                <DefaultValue>1</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Include code of OSQFlush()</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.queue.os_q_post_front_en</SettingName>
+                <Identifier>OS_Q_POST_FRONT_EN</Identifier>
+                <Type>Boolean</Type>
+                <Value>1</Value>
+                <DefaultValue>1</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Include code for OSQPostFront()</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.queue.os_q_post_opt_en</SettingName>
+                <Identifier>OS_Q_POST_OPT_EN</Identifier>
+                <Type>Boolean</Type>
+                <Value>1</Value>
+                <DefaultValue>1</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Include code for OSQPostOpt()</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.queue.os_q_query_en</SettingName>
+                <Identifier>OS_Q_QUERY_EN</Identifier>
+                <Type>Boolean</Type>
+                <Value>1</Value>
+                <DefaultValue>1</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Include code for OSQQuery()</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.queue.os_max_qs</SettingName>
+                <Identifier>OS_MAX_QS</Identifier>
+                <Type>DecimalNumber</Type>
+                <Value>20</Value>
+                <DefaultValue>20</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Maximum number of Queue Control Blocks</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.os_mem_en</SettingName>
+                <Identifier>OS_MEM_EN</Identifier>
+                <Type>Boolean</Type>
+                <Value>1</Value>
+                <DefaultValue>1</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Enable code for memory management</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.memory.os_mem_query_en</SettingName>
+                <Identifier>OS_MEM_QUERY_EN</Identifier>
+                <Type>Boolean</Type>
+                <Value>1</Value>
+                <DefaultValue>1</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Include code for OSMemQuery()</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.memory.os_mem_name_size</SettingName>
+                <Identifier>OS_MEM_NAME_SIZE</Identifier>
+                <Type>DecimalNumber</Type>
+                <Value>32</Value>
+                <DefaultValue>32</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Size of memory partition name</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.memory.os_max_mem_part</SettingName>
+                <Identifier>OS_MAX_MEM_PART</Identifier>
+                <Type>DecimalNumber</Type>
+                <Value>60</Value>
+                <DefaultValue>60</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Maximum number of memory partitions</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.os_tmr_en</SettingName>
+                <Identifier>OS_TMR_EN</Identifier>
+                <Type>Boolean</Type>
+                <Value>0</Value>
+                <DefaultValue>0</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Enable code for timers</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.timer.os_task_tmr_stk_size</SettingName>
+                <Identifier>OS_TASK_TMR_STK_SIZE</Identifier>
+                <Type>DecimalNumber</Type>
+                <Value>512</Value>
+                <DefaultValue>512</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Stack size for timer task</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.timer.os_task_tmr_prio</SettingName>
+                <Identifier>OS_TASK_TMR_PRIO</Identifier>
+                <Type>DecimalNumber</Type>
+                <Value>0</Value>
+                <DefaultValue>0</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Priority of timer task (0=highest)</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.timer.os_tmr_cfg_max</SettingName>
+                <Identifier>OS_TMR_CFG_MAX</Identifier>
+                <Type>DecimalNumber</Type>
+                <Value>16</Value>
+                <DefaultValue>16</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Maximum number of timers</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.timer.os_tmr_cfg_name_size</SettingName>
+                <Identifier>OS_TMR_CFG_NAME_SIZE</Identifier>
+                <Type>DecimalNumber</Type>
+                <Value>16</Value>
+                <DefaultValue>16</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Size of timer name</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.timer.os_tmr_cfg_ticks_per_sec</SettingName>
+                <Identifier>OS_TMR_CFG_TICKS_PER_SEC</Identifier>
+                <Type>DecimalNumber</Type>
+                <Value>10</Value>
+                <DefaultValue>10</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Rate at which timer management task runs (Hz)</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
+                <SettingName>ucosii.timer.os_tmr_cfg_wheel_size</SettingName>
+                <Identifier>OS_TMR_CFG_WHEEL_SIZE</Identifier>
+                <Type>DecimalNumber</Type>
+                <Value>2</Value>
+                <DefaultValue>2</DefaultValue>
+                <DestinationFile>system_h_define</DestinationFile>
+                <Description>Size of timer wheel (number of spokes)</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+        </Setting>
+        <Setting>
                 <SettingName>altera_avalon_jtag_uart_driver.enable_small_driver</SettingName>
                 <Identifier>ALTERA_AVALON_JTAG_UART_SMALL</Identifier>
                 <Type>BooleanDefineOnly</Type>
@@ -890,7 +1730,7 @@
                 <SettingName>altera_avalon_jtag_uart_driver.enable_jtag_uart_ignore_fifo_full_error</SettingName>
                 <Identifier>ALTERA_AVALON_JTAG_UART_IGNORE_FIFO_FULL_ERROR</Identifier>
                 <Type>BooleanDefineOnly</Type>
-                <Value>true</Value>
+                <Value>false</Value>
                 <DefaultValue>false</DefaultValue>
                 <DestinationFile>public_mk_define</DestinationFile>
                 <Description>Enable JTAG UART driver to recover when host is inactive causing buffer to full without returning error. Printf will not fail with this recovery.</Description>
@@ -898,30 +1738,6 @@
                 <Enabled>false</Enabled>
                 <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
         </Setting>
-        <LinkerRegion>
-                <regionName>new_sdram_controller_0</regionName>
-                <memoryName>new_sdram_controller_0</memoryName>
-                <offset>1048576</offset>
-                <size>1048576</size>
-                <baseAddress>0x4100000</baseAddress>
-                <addressRange>0x04100000 - 0x041FFFFF</addressRange>
-        </LinkerRegion>
-        <LinkerRegion>
-                <regionName>reset</regionName>
-                <memoryName>control_mem</memoryName>
-                <offset>0</offset>
-                <size>32</size>
-                <baseAddress>0x8002000</baseAddress>
-                <addressRange>0x08002000 - 0x0800201F</addressRange>
-        </LinkerRegion>
-        <LinkerRegion>
-                <regionName>control_mem</regionName>
-                <memoryName>control_mem</memoryName>
-                <offset>32</offset>
-                <size>8160</size>
-                <baseAddress>0x8002020</baseAddress>
-                <addressRange>0x08002020 - 0x08003FFF</addressRange>
-        </LinkerRegion>
         <MemoryMap>
                 <slaveDescriptor>new_sdram_controller_0</slaveDescriptor>
                 <addressRange>0x04000000 - 0x07FFFFFF</addressRange>
@@ -935,110 +1751,116 @@
                 <attributes>memory</attributes>
         </MemoryMap>
         <MemoryMap>
+                <slaveDescriptor>rtos_timer</slaveDescriptor>
+                <addressRange>0x08005020 - 0x0800503F</addressRange>
+                <addressSpan>32</addressSpan>
+                <attributes>timer</attributes>
+        </MemoryMap>
+        <MemoryMap>
                 <slaveDescriptor>con_vga_IRQ_rx</slaveDescriptor>
-                <addressRange>0x08005100 - 0x0800510F</addressRange>
-                <addressSpan>16</addressSpan>
-                <attributes/>
-        </MemoryMap>
-        <MemoryMap>
-                <slaveDescriptor>con_vga_IRQ_tx</slaveDescriptor>
-                <addressRange>0x08005110 - 0x0800511F</addressRange>
-                <addressSpan>16</addressSpan>
-                <attributes/>
-        </MemoryMap>
-        <MemoryMap>
-                <slaveDescriptor>con_img_IRQ_rx</slaveDescriptor>
-                <addressRange>0x08005120 - 0x0800512F</addressRange>
-                <addressSpan>16</addressSpan>
-                <attributes/>
-        </MemoryMap>
-        <MemoryMap>
-                <slaveDescriptor>con_img_IRQ_tx</slaveDescriptor>
-                <addressRange>0x08005130 - 0x0800513F</addressRange>
-                <addressSpan>16</addressSpan>
-                <attributes/>
-        </MemoryMap>
-        <MemoryMap>
-                <slaveDescriptor>pio_speaker</slaveDescriptor>
                 <addressRange>0x08005140 - 0x0800514F</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
-                <slaveDescriptor>pio_led_module</slaveDescriptor>
+                <slaveDescriptor>con_vga_IRQ_tx</slaveDescriptor>
                 <addressRange>0x08005150 - 0x0800515F</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
-                <slaveDescriptor>pio_hex5</slaveDescriptor>
+                <slaveDescriptor>con_img_IRQ_rx</slaveDescriptor>
                 <addressRange>0x08005160 - 0x0800516F</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
-                <slaveDescriptor>pio_hex4</slaveDescriptor>
+                <slaveDescriptor>con_img_IRQ_tx</slaveDescriptor>
                 <addressRange>0x08005170 - 0x0800517F</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
-                <slaveDescriptor>pio_hex3</slaveDescriptor>
+                <slaveDescriptor>pio_speaker</slaveDescriptor>
                 <addressRange>0x08005180 - 0x0800518F</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
-                <slaveDescriptor>pio_hex2</slaveDescriptor>
+                <slaveDescriptor>pio_led_module</slaveDescriptor>
                 <addressRange>0x08005190 - 0x0800519F</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
-                <slaveDescriptor>pio_hex1</slaveDescriptor>
+                <slaveDescriptor>pio_hex5</slaveDescriptor>
                 <addressRange>0x080051A0 - 0x080051AF</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
-                <slaveDescriptor>pio_hex0</slaveDescriptor>
+                <slaveDescriptor>pio_hex4</slaveDescriptor>
                 <addressRange>0x080051B0 - 0x080051BF</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
-                <slaveDescriptor>pio_gpio</slaveDescriptor>
+                <slaveDescriptor>pio_hex3</slaveDescriptor>
                 <addressRange>0x080051C0 - 0x080051CF</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
-                <slaveDescriptor>pio_pb</slaveDescriptor>
+                <slaveDescriptor>pio_hex2</slaveDescriptor>
                 <addressRange>0x080051D0 - 0x080051DF</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
-                <slaveDescriptor>pio_sw</slaveDescriptor>
+                <slaveDescriptor>pio_hex1</slaveDescriptor>
                 <addressRange>0x080051E0 - 0x080051EF</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
-                <slaveDescriptor>pio_led</slaveDescriptor>
+                <slaveDescriptor>pio_hex0</slaveDescriptor>
                 <addressRange>0x080051F0 - 0x080051FF</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
+                <slaveDescriptor>pio_gpio</slaveDescriptor>
+                <addressRange>0x08005200 - 0x0800520F</addressRange>
+                <addressSpan>16</addressSpan>
+                <attributes/>
+        </MemoryMap>
+        <MemoryMap>
+                <slaveDescriptor>pio_pb</slaveDescriptor>
+                <addressRange>0x08005210 - 0x0800521F</addressRange>
+                <addressSpan>16</addressSpan>
+                <attributes/>
+        </MemoryMap>
+        <MemoryMap>
+                <slaveDescriptor>pio_sw</slaveDescriptor>
+                <addressRange>0x08005220 - 0x0800522F</addressRange>
+                <addressSpan>16</addressSpan>
+                <attributes/>
+        </MemoryMap>
+        <MemoryMap>
+                <slaveDescriptor>pio_led</slaveDescriptor>
+                <addressRange>0x08005230 - 0x0800523F</addressRange>
+                <addressSpan>16</addressSpan>
+                <attributes/>
+        </MemoryMap>
+        <MemoryMap>
                 <slaveDescriptor>mutex_0</slaveDescriptor>
-                <addressRange>0x08005208 - 0x0800520F</addressRange>
+                <addressRange>0x08005248 - 0x0800524F</addressRange>
                 <addressSpan>8</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>jtag_control</slaveDescriptor>
-                <addressRange>0x08005210 - 0x08005217</addressRange>
+                <addressRange>0x08005250 - 0x08005257</addressRange>
                 <addressSpan>8</addressSpan>
                 <attributes>printable</attributes>
         </MemoryMap>

@@ -5,6 +5,7 @@
 #include "system.h"
 #include "altera_avalon_pio_regs.h"
 #include "control.h"
+#include "includes.h"
 
 #define USER_MESSAGE "I Love NIOS"
 #define USER_MESSAGE_LENGTH 16
@@ -12,63 +13,39 @@
 #define TRAFFIC_THRESHOLD 20000
 #define ACCEL_THRESHOLD 5000
 
+/* Definition of Task Stacks */
+#define   EFFICIENT_STACKSIZE       512 // For lighter task loads (less RAM)
+#define   HEAVY_STACKSIZE			2056 // For heavy-duty task loads (way more RAM)
+OS_STK input_task_stk[EFFICIENT_STACKSIZE];
+OS_STK hex_task_stk[HEAVY_STACKSIZE];
+
+// Priorities
+#define   INPUT_TASK_PRIO	3
+#define   HEX_TASK_PRIO 	4
+// List of semaphores
+OS_EVENT *input_update_sem;
+
 int main(void)
 {
-    control_shared_flags_init();
-    // Setup Traffic Light
-    int traffic_counter = 0;
-    int traffic_state = 0;   /* 0=green, 1=yellow, 2=red */
+	// create semaphore first to avoid boot race condition
+	input_update_sem = OSSemCreate(0);
 
-    /* initial traffic light */
-    green_light(1);
-    yellow_light(0);
-    red_light(0);
+	// then initialize the rest
+	control_shared_flags_init();
+	switch_setup();
+	key_setup();
+	img_rx_setup();
+	vga_rx_setup();
 
-    // Setup the switch and key interrupts
-    switch_setup();
-    key_setup();
-    img_rx_setup();
-    vga_rx_setup();
+    // For catching input
+    OSTaskCreateExt(input_task, NULL, &input_task_stk[EFFICIENT_STACKSIZE - 1],
+        INPUT_TASK_PRIO, INPUT_TASK_PRIO, input_task_stk, EFFICIENT_STACKSIZE, NULL, 0);
 
-    while (1)
-    {
-    	// Key Operations
-    	handle_key1();
-    	handle_key2();
+    // For handling the HEX displays
+    OSTaskCreateExt(HEX_task, NULL, &hex_task_stk[HEAVY_STACKSIZE - 1],
+        HEX_TASK_PRIO, HEX_TASK_PRIO, hex_task_stk, HEAVY_STACKSIZE, NULL, 0);
 
-        // Flag Switch and Reset HEX
-        HEX_enable();
+    OSStart();
 
-        // Handle CPU and Speaker switch
-        handle_switch2("TEST123");
-        handle_switch3();
-        handle_switch4();
-
-        // Traffic Light operation
-        traffic_counter++;
-        if (traffic_counter >= TRAFFIC_THRESHOLD)
-        {
-            if (traffic_state == 0) {
-                green_light(0);
-                yellow_light(1);
-                red_light(0);
-                traffic_state = 1;
-            }
-            else if (traffic_state == 1) {
-                green_light(0);
-                yellow_light(0);
-                red_light(1);
-                traffic_state = 2;
-            }
-            else {
-                green_light(1);
-                yellow_light(0);
-                red_light(0);
-                traffic_state = 0;
-            }
-
-            traffic_counter = 0;
-        }
-    }
     return 0;
 }
