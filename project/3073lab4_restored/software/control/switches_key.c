@@ -22,6 +22,11 @@ static void shared_write32(uint32_t offset, uint32_t value)
     IOWR_32DIRECT(CONTROL_START_FLAGS_BASE, offset, value);
 }
 
+static uint32_t shared_read32 (uint32_t offset)
+{
+    return IORD_32DIRECT(CONTROL_START_FLAGS_BASE, offset);
+}
+
 uint32_t control_get_switch_state(void)
 {
     return (uint32_t)(switch_state & CONTROL_SW_MASK);
@@ -176,6 +181,9 @@ static void img_rx_isr(void* context) {
     // Resets the GPIO [0]
     IOWR_ALTERA_AVALON_PIO_DATA(PIO_GPIO_BASE, (GPIO_state & 0x2));
     GPIO_state = GPIO_state & 0x2;
+
+    // Lets the ledr and led module update run
+    OSSemPost(leds_update_sem);
 }
 
 void img_rx_setup(void) {
@@ -202,6 +210,9 @@ static void vga_rx_isr(void* context) {
     // Resets the GPIO [1]
     IOWR_ALTERA_AVALON_PIO_DATA(PIO_GPIO_BASE, (GPIO_state & 0x1));
     GPIO_state = GPIO_state & 0x1;
+
+    // Lets the ledr and led module update run
+    OSSemPost(leds_update_sem);
 }
 
 void vga_rx_setup(void) {
@@ -221,15 +232,74 @@ void vga_rx_setup(void) {
     );
 }
 
+void leds_update_task(void* pdata) {
+    INT8U err;
+    uint32_t current_led_module_state;
+    uint32_t current_ledr_state;
+
+    while(1) {
+        OSSemPend(leds_update_sem, 0, &err);
+
+        // Update flags
+        current_led_module_state = shared_read32(FLAG_CONTROL_LED_MODULE);
+        current_ledr_state       = shared_read32(FLAG_CONTROL_LEDR);
+
+        // Update the LED Module
+        // All off
+        if (current_led_module_state == 0){
+        	red_light (0);
+        	yellow_light (0);
+        	green_light (0);
+        }
+        // Red only
+        else if (current_led_module_state == 1){
+        	red_light (1);
+			yellow_light (0);
+			green_light (0);
+        }
+        // Yellow only
+        else if (current_led_module_state == 2){
+			red_light (0);
+			yellow_light (1);
+			green_light (0);
+		}
+        // Green only
+        else if (current_led_module_state == 4){
+        	red_light (0);
+			yellow_light (0);
+			green_light (1);
+        }
+
+        // Update the 10 Red LEDs
+        IOWR_ALTERA_AVALON_PIO_DATA(PIO_LED_BASE, (current_ledr_state & 0x3FF));
+    }
+}
+
 void HEX_task(void* pdata) {
-    char padded_message[64];
+	char sdram_message[56];
+    char padded_message[68];
     int msg_len = 0;
+
+    // Global variable provided by uC/OS-II
+    extern INT8U OSCPUUsage;
 
     while(1) {
 
         // Switch 1
         if (switch_state & 0x01) {
             HEX_enable_bit = 1;
+
+            // --- TEST INJECTION ---
+			// When SW1 is on, force a test message into the SDRAM
+			const char* test_msg = "TESTING NIOS SDRAM";
+			int i;
+			for (i = 0; i < strlen(test_msg); i++) {
+				// Write character by character to SDRAM
+				IOWR_8DIRECT(CONTROL_START_FLAGS_BASE, FLAG_CONTROL_MESSAGE + i, test_msg[i]);
+			}
+			// Guarantee null termination at the end of the test string
+			IOWR_8DIRECT(CONTROL_START_FLAGS_BASE, FLAG_CONTROL_MESSAGE + i, '\0');
+			// ----------------------
         } else {
             HEX_enable_bit = 0;
             // Turn off displays
@@ -243,28 +313,36 @@ void HEX_task(void* pdata) {
 
         // Switch 2
         if (HEX_enable_bit && (switch_state & 0x02)) {
-            IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX1_BASE, 0xFF);
-            IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX0_BASE, 0xFF);
 
-            // pending
-            const char* message = "test123";
-            if (message == 0) message = "";
+            // Reads 57 characters and keeps char 57 for null terminator
+            for (int i = 0; i < 55; i++) {
+				sdram_message[i] = IORD_8DIRECT(CONTROL_START_FLAGS_BASE, FLAG_CONTROL_MESSAGE + i);
+				if (sdram_message[i] == '\0') {
+					break;
+				}
+			}
+			sdram_message[55] = '\0'; // Guarantee null termination
 
-            snprintf(padded_message, sizeof(padded_message), "    %s    ", message);
-            msg_len = strlen(padded_message);
+			// Pad the string for smooth scroll and truncates excess
+			snprintf(padded_message, sizeof(padded_message), "      %s      ", sdram_message);
+			msg_len = strlen(padded_message);
 
             char c5 = padded_message[scroll_offset];
             char c4 = padded_message[scroll_offset + 1];
             char c3 = padded_message[scroll_offset + 2];
             char c2 = padded_message[scroll_offset + 3];
+            char c1 = padded_message[scroll_offset + 4];
+            char c0 = padded_message[scroll_offset + 5];
 
             IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX5_BASE, translator(c5));
             IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX4_BASE, translator(c4));
             IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX3_BASE, translator(c3));
             IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX2_BASE, translator(c2));
+            IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX1_BASE, translator(c1));
+            IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX0_BASE, translator(c0));
 
             scroll_offset++;
-            if (scroll_offset > (msg_len - 4)) {
+            if (scroll_offset > (msg_len - 6)) {
                 scroll_offset = 0;
             }
 
@@ -275,17 +353,31 @@ void HEX_task(void* pdata) {
 
         // Switch 3
         else if (HEX_enable_bit && (switch_state & 0x04)) {
-            IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX5_BASE, 0xFF);
-            IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX4_BASE, 0xFF);
-            IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX3_BASE, 0xFF);
-            IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX2_BASE, 0xFF);
+			IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX5_BASE, 0xFF);
+			IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX4_BASE, 0xFF);
+			IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX3_BASE, 0xFF);
 
-            IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX1_BASE, translator('8'));
-            IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX0_BASE, translator('7'));
+			// Read the current CPU load
+			int cpu_load = OSCPUUsage;
 
-            // (period of 500 ms = frequency of 2 Hz)
-            OSTimeDlyHMSM(0, 0, 0, 500);
-        }
+			// Display via splitting by tens
+			if (cpu_load >= 100) {
+				IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX2_BASE, translator('1'));
+				IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX1_BASE, translator('0'));
+				IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX0_BASE, translator('0'));
+			}
+			else {
+				char tens = '0' + (cpu_load / 10);
+				char ones = '0' + (cpu_load % 10);
+
+				IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX2_BASE, 0xFF); // Turn off the hundreds digit
+				IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX1_BASE, translator(tens));
+				IOWR_ALTERA_AVALON_PIO_DATA(PIO_HEX0_BASE, translator(ones));
+			}
+
+			// (period of 500 ms = frequency of 2 Hz)
+			OSTimeDlyHMSM(0, 0, 0, 500);
+		}
 
         // Sleep and wait
         else {

@@ -19,7 +19,7 @@
 #define FLAG_CONTROL_SPEAKER_OPTION	   0x81C
 #define FLAG_CONTROL_LED_MODULE		   0x820
 #define FLAG_CONTROL_LEDR			   0x824
-#define FLAG_CONTROL_MESSAGE		   0x828 // Save 68 bytes incase for 64 byte message (0x86C is next address)
+#define FLAG_CONTROL_MESSAGE		   0x828 // Save 56 byte message (0x860 is next address)
 
 #define CONTROL_EVENT_NONE             0
 #define CONTROL_EVENT_KEY              1
@@ -57,6 +57,7 @@
 
 // semaphore
 extern OS_EVENT *input_update_sem;
+extern OS_EVENT *leds_update_sem;
 
 /* existing switch_key functions / HEX functions */
 void control_shared_flags_init(void);
@@ -67,6 +68,7 @@ void key_setup(void);
 void img_rx_setup(void);
 void vga_rx_setup(void);
 void input_task(void* pdata);
+void leds_update_task(void* pdata);
 void HEX_task(void* pdata);
 void handle_switch4(void);
 int translator(char a);
