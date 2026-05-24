@@ -2,14 +2,9 @@
 <sch:Settings xmlns:sch="http://www.altera.com/embeddedsw/bsp/schema">
         <BspType>hal</BspType>
         <BspVersion>default</BspVersion>
-<<<<<<< Updated upstream
-        <BspGeneratedTimeStamp>May 23, 2026 3:56:42 PM</BspGeneratedTimeStamp>
-        <BspGeneratedUnixTimeStamp>1779523002582</BspGeneratedUnixTimeStamp>
-=======
-        <BspGeneratedTimeStamp>May 23, 2026 2:27:45 PM</BspGeneratedTimeStamp>
-        <BspGeneratedUnixTimeStamp>1779517665220</BspGeneratedUnixTimeStamp>
->>>>>>> Stashed changes
-        <BspGeneratedLocation>C:\ECE3073\ECE4078_Lab_2025\ECE3073-Project2025-Lab02-Group4\project\3073lab4_restored\software\vga_bsp</BspGeneratedLocation>
+        <BspGeneratedTimeStamp>May 23, 2026 3:33:55 AM</BspGeneratedTimeStamp>
+        <BspGeneratedUnixTimeStamp>1779478435009</BspGeneratedUnixTimeStamp>
+        <BspGeneratedLocation>C:\temp\ECE3073-Project2025-Lab02-Group4\project\3073lab4_restored\software\vga_bsp</BspGeneratedLocation>
         <BspSettingsFile>settings.bsp</BspSettingsFile>
         <SopcDesignFile>..\..\NIOSII_WEEK3.sopcinfo</SopcDesignFile>
         <JdiFile>default</JdiFile>
@@ -989,7 +984,7 @@
         </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>mutex_0</slaveDescriptor>
-                <addressRange>0x08005248 - 0x0800524F</addressRange>
+                <addressRange>0x08005208 - 0x0800520F</addressRange>
                 <addressSpan>8</addressSpan>
                 <attributes/>
         </MemoryMap>

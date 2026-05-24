@@ -3,7 +3,6 @@
 	<name>vga_bsp</name>
 	<comment></comment>
 	<projects>
-		<project>vga</project>
 	</projects>
 	<buildSpec>
 		<buildCommand>

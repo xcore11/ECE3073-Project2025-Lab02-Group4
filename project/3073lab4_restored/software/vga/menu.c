@@ -1,7 +1,10 @@
 #include "menu.h"
 #include "vga.h"
 
-/* Local RGB332 constants */
+/*
+   Local RGB332 constants. Do not use COL_* here so this file cannot redefine
+   color aliases from vga.h.
+*/
 #define MENU_COL_BLACK   0x00
 #define MENU_COL_DARK    0x49
 #define MENU_COL_BLUE    0x03
@@ -85,9 +88,8 @@ void menu_draw(int selected_index)
     draw_menu_option(136, "DRAW PIXEL GAME",    selected_index == 2);
     draw_menu_option(162, "DEBUG MENU",         selected_index == 3);
 
-    vga_print_software_text(40, 194, "TILT UP DOWN TO SELECT", MENU_COL_CYAN);
-    vga_print_software_text(62, 208, "KEY1 / IRQ TO ENTER", MENU_COL_YELLOW);
-    vga_print_software_text(50, 222, "FLIP DOWN SW4 TO KILL", MENU_COL_RED);
+    vga_print_software_text(40, 198, "TILT UP DOWN TO SELECT", MENU_COL_CYAN);
+    vga_print_software_text(62, 214, "KEY1 / IRQ TO ENTER", MENU_COL_YELLOW);
 }
 
 int menu_get_selected_screen(int selected_index)
