@@ -77,6 +77,40 @@ ECE3073-Project2025-Lab02-Group4/
 8. KEY1 - Captures the image, wait until it receives an image.
 9. KEY0 - Displays the image captured.
 
+# Milestone 3
+# DE10-Lite Triple-Core AI Snake
+
+## a) Key Features (Full Integration)
+
+### Core Architecture & Processing
+* **Altera DE10-Lite FPGA:** The heart of the system, running a custom triple-core Nios II processor architecture (Control, Image, and VGA cores) to handle parallel processing.
+* **Real-Time Operating System (RTOS):** Implemented on the Control processor to efficiently manage hardware states, audio queues, and background tasks.
+
+### Hardware & Peripherals
+* **Grove Vision AI V2 & Camera Module:** Captures real-world, live-drawn maps and processes them via AI to generate dynamic in-game obstacles.
+* **On-board Accelerometer:** Measures tilt angles to provide a physical, motion-based steering mechanism for the game.
+* **VGA Output:** Renders the 8-bit game interface, live camera feeds, and UI elements to an external monitor at 60 FPS.
+
+### Immersive Audio/Visual Feedback
+* **Custom Sound Engine (Buzzer):** Plays retro-arcade 8-bit sound effects using direct hardware PWM (e.g., Apple eating chirps, Game Over fanfares).
+* **LED Traffic Lights & HEX Displays:** Provides real-time physical feedback, including a cascading Red/Yellow/Green "Game Over" sequence and live CPU load monitoring on the 5th and 6th HEX displays.
+
+### User Controls (Switches & Keys)
+* **SW2:** Toggles the CPU load display on the HEX modules.
+* **SW4:** Triggers the main game interface.
+* **SW5 to SW8:** Toggles various internal game functions and debug states.
+* **SW9:** Master switch to return to the Main Menu.
+* **KEY0 & KEY1:** Primary physical push-buttons for discrete game actions.
+
+---
+
+## b) Summarised Game Functions
+
+* **Classic Snake Mechanics:** Navigate the grid, eat apples to increase your score and length, and avoid colliding with walls or your own tail.
+* **Live Map Generation:** Draw a maze or obstacles on a physical piece of paper, show it to the camera, and watch the hardware translate it into playable in-game walls.
+* **Motion Control Steering:** Tilt the physical DE10-Lite board up, down, left, or right to steer the snake using real-time accelerometer data.
+* **Arcade Hardware Integration:** Every in-game action is tied to physical hardware. Eating an apple flashes the green LED and plays a chirp; hitting a wall locks the board into a flashing red-light "Game Over" state with a dramatic audio fanfare.
+
 ## Roadmap
 ### Milestone 1: VGA Controller
 - [x] Initial NIOS II Hardware Setup (WC)
@@ -114,6 +148,10 @@ ECE3073-Project2025-Lab02-Group4/
 ---
 
 ### Milestone 3: System Integration
+- [x] Delegation of tasks is completed
+- [x] Gameplay (Ships and Snakes) (WC)
+   - [x] Implementation of Sound Effects and Game Effects (LX)
+- [x] Implementation of RTOS for the Control Core (SEAN)
 
 ---
 
