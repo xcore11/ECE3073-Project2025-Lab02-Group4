@@ -13,5 +13,11 @@ void sfx_error_buzz(void);
 void sfx_eat_apple(void);
 void sfx_end_screen(void);
 void sfx_change(void);
+void sfx_click(void);
+void sfx_enter_snake(void);
+void sfx_enter_draw(void);
+void sfx_enter_battle(void);
+void sfx_clear(void);
+void sfx_snake_turn(void);
 
 #endif // SOUNDEFFECTS_H

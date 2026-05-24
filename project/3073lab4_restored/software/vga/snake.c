@@ -92,6 +92,22 @@ extern int accel_read_z(alt_32 *z);
 #define FLAG_RT_PANEL_MODE             0x874
 #define GAME_MODE_SNAKE                1
 
+/* Control peripheral/SFX mailbox. */
+#define DEBUG_CONTROL_BASE             0x06000000
+#define FLAG_CONTROL_EVENT_SEQ         0x800
+#define FLAG_CONTROL_LAST_EVENT_TYPE   0x814
+#define FLAG_CONTROL_LAST_EVENT_VALUE  0x818
+#define FLAG_CONTROL_MESSAGE           0x828
+#define DEBUG_CONTROL_MESSAGE_BYTES    68
+#define DEBUG_CONTROL_CMD_BATCH        100
+#define DEBUG_CONTROL_MASK_HEX_MESSAGE 0x00000001u
+
+#define FLAG_SFX_EAT_APPLE             0xC40
+#define FLAG_SFX_GAME_OVER             0xC44
+#define FLAG_SFX_PORTAL                0xC48
+#define FLAG_SFX_CLEAR                 0xC6C
+#define FLAG_SFX_SNAKE_TURN            0xC70
+
 #define RX_IDLE_COLOR                  0xE0
 #define RX_ACTIVE_COLOR                0x1C
 #define RX_PAUSE_TICKS                 30
@@ -109,11 +125,6 @@ extern int accel_read_z(alt_32 *z);
 #define SNAKE_FLAG_APPLE_X             0x060
 #define SNAKE_FLAG_APPLE_Y             0x064
 #define SNAKE_FLAG_APPLE_COUNT         0x088  /* number of active apples mirrored in SNAKE_SHARED_APPLE_LIST */
-
-/* One-shot SFX flags consumed and cleared by the Control processor. */
-#define FLAG_SFX_EAT_APPLE             0x090
-#define FLAG_SFX_GAME_OVER             0x094
-#define FLAG_SFX_PORTAL                0x098
 #define SNAKE_FLAG_PORTAL_ENABLED      0x068
 #define SNAKE_FLAG_PORTAL_A_X          0x06C
 #define SNAKE_FLAG_PORTAL_A_Y          0x070
@@ -263,6 +274,7 @@ static int lose_screen_drawn = 0;
 static uint32_t snake_rx_last_seq = 0;
 static int snake_rx_pause_ticks = 0;
 static int snake_rx_indicator_state = -1;
+static int last_published_dir = -1;
 
 /* =========================
    SDRAM helpers
@@ -271,11 +283,6 @@ static int snake_rx_indicator_state = -1;
 static void shared_write32(uint32_t offset, uint32_t value)
 {
     IOWR_32DIRECT(SHARED_FLAGS_BASE, offset, value);
-}
-
-static void trigger_sfx_flag(uint32_t offset)
-{
-    IOWR_32DIRECT(SHARED_FLAGS_BASE, offset, 1);
 }
 
 static uint32_t shared_read32(uint32_t offset)
@@ -293,6 +300,62 @@ static uint8_t shared_read8(uint32_t offset)
 {
     volatile uint8_t *p = (volatile uint8_t *)(SHARED_FLAGS_BASE + offset);
     return *p;
+}
+static void debug_write32(uint32_t offset, uint32_t value)
+{
+    IOWR_32DIRECT(DEBUG_CONTROL_BASE, offset, value);
+}
+
+static uint32_t debug_read32(uint32_t offset)
+{
+    return IORD_32DIRECT(DEBUG_CONTROL_BASE, offset);
+}
+
+static void debug_write_message(const char *msg)
+{
+    int i;
+
+    for (i = 0; i < DEBUG_CONTROL_MESSAGE_BYTES; i++)
+        IOWR_8DIRECT(DEBUG_CONTROL_BASE, FLAG_CONTROL_MESSAGE + i, 0);
+
+    if (msg == 0)
+        return;
+
+    for (i = 0; i < DEBUG_CONTROL_MESSAGE_BYTES - 1 && msg[i] != '\0'; i++)
+        IOWR_8DIRECT(DEBUG_CONTROL_BASE, FLAG_CONTROL_MESSAGE + i, (uint8_t)msg[i]);
+}
+
+static void publish_control_message(const char *msg)
+{
+    uint32_t seq;
+
+    debug_write_message(msg);
+    debug_write32(FLAG_CONTROL_LAST_EVENT_TYPE, DEBUG_CONTROL_CMD_BATCH);
+    debug_write32(FLAG_CONTROL_LAST_EVENT_VALUE, DEBUG_CONTROL_MASK_HEX_MESSAGE);
+    seq = debug_read32(FLAG_CONTROL_EVENT_SEQ) + 1;
+    debug_write32(FLAG_CONTROL_EVENT_SEQ, seq);
+}
+
+static void trigger_sfx_flag(uint32_t flag_offset)
+{
+    shared_write32(flag_offset, shared_read32(flag_offset) + 1);
+}
+
+static const char *dir_name(SnakeDirection dir)
+{
+    if (dir == DIR_UP) return "UP";
+    if (dir == DIR_DOWN) return "DOWN";
+    if (dir == DIR_LEFT) return "LEFT";
+    return "RIGHT";
+}
+
+static void publish_direction_if_changed(void)
+{
+    if ((int)current_dir != last_published_dir)
+    {
+        last_published_dir = (int)current_dir;
+        trigger_sfx_flag(FLAG_SFX_SNAKE_TURN);
+    }
 }
 
 static int valid_cell(int x, int y)
@@ -1306,18 +1369,21 @@ static void apply_mailbox_command(uint32_t cmd_type, uint32_t count, uint32_t pa
     }
     else if (cmd_type == SNAKE_CMD_CLEAR_ARENA)
     {
+        trigger_sfx_flag(FLAG_SFX_CLEAR);
         clear_all_static_arena();
         decoder_config_clear_all();
         set_command_status(SNAKE_CMD_STATUS_OK);
     }
     else if (cmd_type == SNAKE_CMD_CLEAR_WALLS)
     {
+        trigger_sfx_flag(FLAG_SFX_CLEAR);
         clear_walls_only();
         decoder_config_remove_type(SNAKE_CELL_WALL);
         set_command_status(SNAKE_CMD_STATUS_OK);
     }
     else if (cmd_type == SNAKE_CMD_CLEAR_CELLS)
     {
+        trigger_sfx_flag(FLAG_SFX_CLEAR);
         apply_clear_cells(count, payload_len);
     }
     else
@@ -1413,6 +1479,7 @@ static void set_lost(uint32_t reason_event)
     lose_screen_drawn = 0;
     shared_set_event(reason_event | SNAKE_EVENT_LOST);
     trigger_sfx_flag(FLAG_SFX_GAME_OVER);
+    publish_control_message("DEAD");
     shared_publish_status();
 }
 
@@ -1427,6 +1494,7 @@ static void apply_portal_if_needed(SnakeCell *cell)
         cell->y = portal_b.y;
         shared_set_event(SNAKE_EVENT_USED_PORTAL);
         trigger_sfx_flag(FLAG_SFX_PORTAL);
+        publish_control_message("PORTAL");
     }
     else if (cell->x == portal_b.x && cell->y == portal_b.y)
     {
@@ -1434,6 +1502,7 @@ static void apply_portal_if_needed(SnakeCell *cell)
         cell->y = portal_a.y;
         shared_set_event(SNAKE_EVENT_USED_PORTAL);
         trigger_sfx_flag(FLAG_SFX_PORTAL);
+        publish_control_message("PORTAL");
     }
 }
 
@@ -1447,6 +1516,7 @@ static void snake_step(void)
     erase_tail_needed = 0;
 
     current_dir = next_dir;
+    publish_direction_if_changed();
 
     old_head = snake[0];
     old_tail = snake[snake_len - 1];
@@ -1521,6 +1591,7 @@ static void snake_step(void)
         score++;
         shared_set_event(SNAKE_EVENT_ATE_APPLE);
         trigger_sfx_flag(FLAG_SFX_EAT_APPLE);
+        publish_control_message("APPLE");
 
         /* Remove only the eaten active apple. Decoder apple config is kept,
            so all decoder apples return after retry/reset. */
@@ -1577,6 +1648,8 @@ void snake_init(void)
 
     current_dir = DIR_RIGHT;
     next_dir = DIR_RIGHT;
+    last_published_dir = (int)DIR_RIGHT;
+    publish_control_message("SNAKE");
 
     score = 0;
     snake_lost = 0;

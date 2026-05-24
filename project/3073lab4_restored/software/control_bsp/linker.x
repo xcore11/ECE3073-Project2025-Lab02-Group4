@@ -4,7 +4,7 @@
  * Machine generated for CPU 'control_proc' in SOPC Builder design 'NIOSII_WEEK3'
  * SOPC Builder design path: ../../NIOSII_WEEK3.sopcinfo
  *
- * Generated: Sat May 23 01:47:25 SGT 2026
+ * Generated: Sun May 24 20:35:36 SGT 2026
  */
 
 /*
@@ -51,13 +51,13 @@
 MEMORY
 {
     new_sdram_controller_0 : ORIGIN = 0x4100000, LENGTH = 1048576
-    reset : ORIGIN = 0x8002000, LENGTH = 32
-    control_mem : ORIGIN = 0x8002020, LENGTH = 8160
+    reset : ORIGIN = 0x8004000, LENGTH = 32
+    control_mem : ORIGIN = 0x8004020, LENGTH = 16352
 }
 
 /* Define symbols for each memory base-address */
 __alt_mem_new_sdram_controller_0 = 0x4000000;
-__alt_mem_control_mem = 0x8002000;
+__alt_mem_control_mem = 0x8004000;
 
 OUTPUT_FORMAT( "elf32-littlenios2",
                "elf32-littlenios2",

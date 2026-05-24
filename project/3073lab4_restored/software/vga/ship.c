@@ -54,15 +54,32 @@ extern int accel_read_z(alt_32 *z);
    ========================= */
 #define SHARED_FLAGS_BASE        0x05212000
 
-/* One-shot SFX flags consumed and cleared by the Control processor. */
-#define FLAG_SFX_GAME_OVER       0x094
-#define FLAG_SFX_BATTLE_HIT      0x09C
-#define FLAG_SFX_BATTLE_MISS     0x0A0
-#define FLAG_SFX_CHANGE_ARSENAL  0x0A4
-
 #define FLAG_RT_ACTIVITY_SEQ     0x870
 #define FLAG_RT_PANEL_MODE       0x874
 #define GAME_MODE_BATTLE         4
+
+#define DEBUG_CONTROL_BASE       0x06000000
+#define FLAG_CONTROL_EVENT_SEQ   0x800
+#define FLAG_CONTROL_LAST_EVENT_TYPE  0x814
+#define FLAG_CONTROL_LAST_EVENT_VALUE 0x818
+#define FLAG_CONTROL_MESSAGE     0x828
+#define DEBUG_CONTROL_MESSAGE_BYTES 68
+#define DEBUG_CONTROL_CMD_BATCH  100
+#define DEBUG_CONTROL_MASK_HEX_MESSAGE 0x00000001u
+
+#define FLAG_SFX_GAME_OVER       0xC44
+#define FLAG_SFX_BATTLE_HIT      0xC4C
+#define FLAG_SFX_BATTLE_MISS     0xC50
+#define FLAG_SFX_CHANGE_ARSENAL  0xC54
+#define FLAG_SFX_CLICK           0xC5C
+#define FLAG_SFX_CLEAR           0xC6C
+
+#define FLAG_BATTLE_LOADED_SHIP_CELLS 0xC80
+#define FLAG_BATTLE_DESTROYED_CELLS   0xC84
+#define FLAG_BATTLE_WIN               0xC88
+#define FLAG_BATTLE_CROSS_LEFT        0xC8C
+#define FLAG_BATTLE_SQUARE_LEFT       0xC90
+#define FLAG_BATTLE_SELECTED_BOMB     0xC94
 
 #define RX_IDLE_COLOR            0xE0
 #define RX_ACTIVE_COLOR          0x1C
@@ -173,7 +190,6 @@ static int reveal_anim_active = 0;
 static int reveal_columns = 0;
 
 static int selected_bomb = BOMB_STANDARD;
-static int shot_hit_this_fire = 0;
 static int cross_bombs_left = CROSS_BOMB_MAX;
 static int square_bombs_left = SQUARE_BOMB_MAX;
 
@@ -191,15 +207,11 @@ static unsigned long last_reveal_step_us = 0;
 static int full_redraw_needed = 1;
 static int hud_dirty = 1;
 static int board_dirty = 1;
+static int battle_win_sfx_sent = 0;
 
 /* =========================
    SDRAM helpers
    ========================= */
-static void trigger_sfx_flag(uint32_t offset)
-{
-    IOWR_32DIRECT(SHARED_FLAGS_BASE, offset, 1);
-}
-
 static uint32_t shared_read32(uint32_t offset)
 {
     return IORD_32DIRECT(SHARED_FLAGS_BASE, offset);
@@ -208,6 +220,96 @@ static uint32_t shared_read32(uint32_t offset)
 static void shared_write32(uint32_t offset, uint32_t value)
 {
     IOWR_32DIRECT(SHARED_FLAGS_BASE, offset, value);
+}
+
+static void debug_write32(uint32_t offset, uint32_t value)
+{
+    IOWR_32DIRECT(DEBUG_CONTROL_BASE, offset, value);
+}
+
+static uint32_t debug_read32(uint32_t offset)
+{
+    return IORD_32DIRECT(DEBUG_CONTROL_BASE, offset);
+}
+
+static void debug_write_message(const char *msg)
+{
+    int i;
+    for (i = 0; i < DEBUG_CONTROL_MESSAGE_BYTES; i++)
+        IOWR_8DIRECT(DEBUG_CONTROL_BASE, FLAG_CONTROL_MESSAGE + i, 0);
+    if (msg == 0)
+        return;
+    for (i = 0; i < DEBUG_CONTROL_MESSAGE_BYTES - 1 && msg[i] != '\0'; i++)
+        IOWR_8DIRECT(DEBUG_CONTROL_BASE, FLAG_CONTROL_MESSAGE + i, (uint8_t)msg[i]);
+}
+
+static void publish_control_message(const char *msg)
+{
+    uint32_t seq;
+    debug_write_message(msg);
+    debug_write32(FLAG_CONTROL_LAST_EVENT_TYPE, DEBUG_CONTROL_CMD_BATCH);
+    debug_write32(FLAG_CONTROL_LAST_EVENT_VALUE, DEBUG_CONTROL_MASK_HEX_MESSAGE);
+    seq = debug_read32(FLAG_CONTROL_EVENT_SEQ) + 1;
+    debug_write32(FLAG_CONTROL_EVENT_SEQ, seq);
+}
+
+static void trigger_sfx_flag(uint32_t flag_offset)
+{
+    shared_write32(flag_offset, shared_read32(flag_offset) + 1);
+}
+
+static void clear_battle_grid_mirror_memory(void)
+{
+    int i;
+
+    shared_write32(BATTLE_GRID_READY, 0);
+    shared_write32(BATTLE_GRID_SEQ, 0);
+
+    for (i = 0; i < BATTLE_W * BATTLE_H; i++)
+        shared_write32(BATTLE_GRID_BASE + (uint32_t)i * 4u, 0);
+}
+
+static const char *bomb_name_for_control(void)
+{
+    if (selected_bomb == BOMB_CROSS) return "CR";
+    if (selected_bomb == BOMB_SQUARE) return "SQ";
+    return "STD";
+}
+
+static void publish_battle_status_to_control(void)
+{
+    char msg[DEBUG_CONTROL_MESSAGE_BYTES];
+    uint32_t win = (layout_loaded && loaded_ship_cells > 0 && destroyed_ship_cells >= loaded_ship_cells) ? 1u : 0u;
+
+    if (cross_bombs_left < 0 || cross_bombs_left > CROSS_BOMB_MAX)
+        cross_bombs_left = CROSS_BOMB_MAX;
+    if (square_bombs_left < 0 || square_bombs_left > SQUARE_BOMB_MAX)
+        square_bombs_left = SQUARE_BOMB_MAX;
+
+    shared_write32(FLAG_BATTLE_LOADED_SHIP_CELLS, (uint32_t)loaded_ship_cells);
+    shared_write32(FLAG_BATTLE_DESTROYED_CELLS, (uint32_t)destroyed_ship_cells);
+    shared_write32(FLAG_BATTLE_WIN, win);
+    shared_write32(FLAG_BATTLE_CROSS_LEFT, (uint32_t)cross_bombs_left);
+    shared_write32(FLAG_BATTLE_SQUARE_LEFT, (uint32_t)square_bombs_left);
+    shared_write32(FLAG_BATTLE_SELECTED_BOMB, (uint32_t)selected_bomb);
+
+    if (win) {
+        snprintf(msg, sizeof(msg), "WIN");
+    } else {
+        snprintf(msg, sizeof(msg), "ARS %s SQ%d CR%d",
+                 bomb_name_for_control(), square_bombs_left, cross_bombs_left);
+    }
+
+    publish_control_message(msg);
+}
+
+static void show_fleet_down_popup_once(void)
+{
+    if (!fleet_popup_visible)
+        fleet_popup_drawn = 0;
+
+    fleet_popup_visible = 1;
+    hud_dirty = 1;
 }
 
 static unsigned long tick_us(void)
@@ -257,20 +359,6 @@ static void mark_all_cells_dirty(void)
     board_dirty = 1;
 }
 
-static void show_fleet_down_popup_once(void)
-{
-    /*
-       Keep the end screen stable: do not force a full-screen redraw here.
-       The normal dirty-cell path restores the final hit cells/HUD first, then
-       draws the modal popup once on top.
-    */
-    if (!fleet_popup_visible)
-        fleet_popup_drawn = 0;
-
-    fleet_popup_visible = 1;
-    hud_dirty = 1;
-}
-
 static void recalc_ship_counts(void)
 {
     int x;
@@ -296,8 +384,16 @@ static void recalc_ship_counts(void)
     layout_loaded = (total > 0);
 
     if (layout_loaded && destroyed_ship_cells >= loaded_ship_cells && !fleet_popup_dismissed)
+    {
         show_fleet_down_popup_once();
+        if (!battle_win_sfx_sent)
+        {
+            battle_win_sfx_sent = 1;
+            trigger_sfx_flag(FLAG_SFX_GAME_OVER);
+        }
+    }
 
+    publish_battle_status_to_control();
     hud_dirty = 1;
 }
 
@@ -321,7 +417,9 @@ static void reset_round_keep_layout(void)
     fleet_popup_visible = 0;
     fleet_popup_drawn = 0;
     fleet_popup_dismissed = 0;
+    battle_win_sfx_sent = 0;
 
+    publish_battle_status_to_control();
     mark_all_cells_dirty();
     hud_dirty = 1;
 }
@@ -338,6 +436,7 @@ static void clear_layout_and_round(void)
     fleet_popup_visible = 0;
     fleet_popup_drawn = 0;
     fleet_popup_dismissed = 0;
+    battle_win_sfx_sent = 0;
 
     reset_round_keep_layout();
 
@@ -650,10 +749,6 @@ static void redraw_dirty_cells_and_overlays(void)
 {
     int x;
     int y;
-    int popup_needs_redraw;
-
-    popup_needs_redraw = fleet_popup_visible &&
-                         (!fleet_popup_drawn || full_redraw_needed || board_dirty || hud_dirty);
 
     if (full_redraw_needed)
     {
@@ -686,7 +781,7 @@ static void redraw_dirty_cells_and_overlays(void)
         hud_dirty = 0;
     }
 
-    if (fleet_popup_visible && popup_needs_redraw)
+    if (fleet_popup_visible && !fleet_popup_drawn)
     {
         draw_fleet_down_popup();
         fleet_popup_drawn = 1;
@@ -735,26 +830,28 @@ static void apply_hit_to_cell(int gx, int gy, int blast_kind)
         if (shot_map[gy][gx] != SHOT_HIT)
         {
             shot_map[gy][gx] = SHOT_HIT;
-            shot_hit_this_fire = 1;
             destroyed_ship_cells++;
+            trigger_sfx_flag(FLAG_SFX_BATTLE_HIT);
 
             if (layout_loaded && destroyed_ship_cells >= loaded_ship_cells && !fleet_popup_dismissed)
             {
-                /*
-                   Fleet-down screen is modal. Stop blast animation and draw
-                   the popup once without clearing/repainting the whole screen.
-                */
                 memset(blasts, 0, sizeof(blasts));
-                trigger_sfx_flag(FLAG_SFX_GAME_OVER);
                 show_fleet_down_popup_once();
+                if (!battle_win_sfx_sent)
+                {
+                    battle_win_sfx_sent = 1;
+                    trigger_sfx_flag(FLAG_SFX_GAME_OVER);
+                }
             }
 
+            publish_battle_status_to_control();
             hud_dirty = 1;
         }
     }
     else if (shot_map[gy][gx] == SHOT_NONE)
     {
         shot_map[gy][gx] = SHOT_MISS;
+        trigger_sfx_flag(FLAG_SFX_BATTLE_MISS);
     }
 
     add_blast(gx, gy, blast_kind);
@@ -788,7 +885,6 @@ static void fire_square(void)
 
 static void fire_selected_bomb(void)
 {
-    shot_hit_this_fire = 0;
     if (!layout_loaded)
     {
         printf("[BATTLE] KEY0 ignored, no ship layout loaded\n");
@@ -825,7 +921,7 @@ static void fire_selected_bomb(void)
         fire_standard();
     }
 
-    trigger_sfx_flag(shot_hit_this_fire ? FLAG_SFX_BATTLE_HIT : FLAG_SFX_BATTLE_MISS);
+    publish_battle_status_to_control();
 
     printf("[BATTLE] fired mode=%d x=%d y=%d hit=%d/%d\n",
            selected_bomb, cursor_x, cursor_y,
@@ -909,7 +1005,11 @@ static void sync_battle_grid_mirror(int force)
     if (mirror_ship_count == 0)
     {
         if (layout_loaded || loaded_ship_cells != 0 || destroyed_ship_cells != 0 || force)
+        {
+            if (!force)
+                trigger_sfx_flag(FLAG_SFX_CLEAR);
             clear_layout_and_round();
+        }
 
         shared_write32(BATTLE_GRID_READY, 0);
         return;
@@ -958,6 +1058,7 @@ static void poll_battle_mailbox_once(void)
     {
         printf("[BATTLE MB] clear all\n");
         fflush(stdout);
+        trigger_sfx_flag(FLAG_SFX_CLEAR);
         clear_layout_and_round();
     }
     else if (type == BATTLE_CMD_SET_SHIP)
@@ -1131,8 +1232,9 @@ static void choose_bomb_from_switches(uint32_t switch_state)
 
     if (old_bomb != selected_bomb)
     {
-        hud_dirty = 1;
         trigger_sfx_flag(FLAG_SFX_CHANGE_ARSENAL);
+        publish_battle_status_to_control();
+        hud_dirty = 1;
     }
 }
 
@@ -1146,14 +1248,16 @@ void ship_game_handle_control_event(uint32_t key_mask,
     (void)event_type;
 
     /*
-       Fleet-down popup is modal and stable.
+       Fleet-down popup is modal.
        SW8 = continue viewing board.
        SW9 = global menu escape handled in main.c.
-       KEY0/KEY1 and other switches are ignored here so they cannot dirty the
-       board behind the popup and cause a visible refresh/flicker.
+       KEY1 remains moderator reveal, but it does not dismiss the popup.
     */
     if (fleet_popup_visible)
     {
+        if (key_mask != 0 || (rising & CONTROL_SW8_MASK) || (switch_state & CONTROL_SW8_MASK))
+            trigger_sfx_flag(FLAG_SFX_CLICK);
+
         if ((rising & CONTROL_SW8_MASK) || (switch_state & CONTROL_SW8_MASK))
         {
             printf("[BATTLE] continue after fleet down by SW8\n");
@@ -1163,11 +1267,12 @@ void ship_game_handle_control_event(uint32_t key_mask,
             fleet_popup_drawn = 0;
             fleet_popup_dismissed = 1;
 
-            /* Removing the modal requires restoring the board underneath once. */
-            full_redraw_needed = 1;
             mark_all_cells_dirty();
             hud_dirty = 1;
+            publish_battle_status_to_control();
         }
+
+        /* Keys are locked while the end popup is visible. SW8 continues, SW9 exits in main.c. */
 
         last_switch_state = switch_state;
         return;
@@ -1193,12 +1298,18 @@ void ship_game_handle_control_event(uint32_t key_mask,
 /* =========================
    Public API
    ========================= */
+int ship_game_fleet_popup_visible(void)
+{
+    return fleet_popup_visible ? 1 : 0;
+}
+
 void ship_game_init(void)
 {
-    if (!layout_loaded)
-        clear_layout_and_round();
-    else
-        reset_round_keep_layout();
+    /* Always start the Battleship panel from a clean hidden layout.
+       Previous runs could leave BATTLE_GRID_BASE cells in SDRAM, which made
+       the board appear with default/stale ships before Python resent a fleet. */
+    clear_battle_grid_mirror_memory();
+    clear_layout_and_round();
 
     fake_time_us = 0;
     last_cursor_move_us = 0;
@@ -1207,15 +1318,15 @@ void ship_game_init(void)
     battle_rx_ticks = 0;
     battle_rx_indicator_active = 0;
 
-    /* Clear any stale single-mailbox command from older decoder versions,
-       then force-load the direct hidden-map mirror if Python sent layout
-       before/while this panel opened. */
+    /* Clear any stale single-mailbox command from older decoder versions.
+       New SHIP/CLEAR/DONE data from IMG will arrive after panel entry. */
     shared_write32(BATTLE_MB_READY, 0);
-    sync_battle_grid_mirror(1);
 
     full_redraw_needed = 1;
     hud_dirty = 1;
     board_dirty = 1;
+
+    publish_battle_status_to_control();
 
     printf("[BATTLE] battleship screen init\n");
     fflush(stdout);

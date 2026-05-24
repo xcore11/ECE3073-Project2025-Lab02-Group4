@@ -2,8 +2,8 @@
 <sch:Settings xmlns:sch="http://www.altera.com/embeddedsw/bsp/schema">
         <BspType>hal</BspType>
         <BspVersion>default</BspVersion>
-        <BspGeneratedTimeStamp>May 24, 2026 5:35:31 PM</BspGeneratedTimeStamp>
-        <BspGeneratedUnixTimeStamp>1779615331997</BspGeneratedUnixTimeStamp>
+        <BspGeneratedTimeStamp>May 24, 2026 8:30:53 PM</BspGeneratedTimeStamp>
+        <BspGeneratedUnixTimeStamp>1779625853986</BspGeneratedUnixTimeStamp>
         <BspGeneratedLocation>C:\temp\ECE3073-Project2025-Lab02-Group4\project\3073lab4_restored\software\image_bsp</BspGeneratedLocation>
         <BspSettingsFile>settings.bsp</BspSettingsFile>
         <SopcDesignFile>..\..\NIOSII_WEEK3.sopcinfo</SopcDesignFile>
@@ -972,7 +972,7 @@
         </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>mutex_0</slaveDescriptor>
-                <addressRange>0x08005208 - 0x0800520F</addressRange>
+                <addressRange>0x08009248 - 0x0800924F</addressRange>
                 <addressSpan>8</addressSpan>
                 <attributes/>
         </MemoryMap>

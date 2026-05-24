@@ -68,11 +68,32 @@ static void shared_write_u32(uint32_t offset, uint32_t value)
 static void sync_panel_mode_to_esp(int force_send)
 {
     uint32_t mode = shared_read_u32(FLAG_CURRENT_GAME);
+    uint32_t old_mode = current_panel_mode;
 
     if (mode != GAME_MODE_SNAKE && mode != GAME_MODE_DRAW && mode != GAME_MODE_DEBUG && mode != GAME_MODE_BATTLE)
         mode = GAME_MODE_MENU;
 
     current_panel_mode = mode;
+
+    if (mode != old_mode)
+    {
+        /*
+           Very important for re-entering DEBUG: decoderdebug.c keeps a local
+           accumulator plus last-published command values. Control clears the
+           0x06000000 mailbox when DEBUG exits, so IMG must also reset its
+           decoder state when DEBUG is entered again. Otherwise the same second
+           DEBUG instruction looks "unchanged" to IMG and is never republished.
+        */
+        if (mode == GAME_MODE_DEBUG || old_mode == GAME_MODE_DEBUG)
+        {
+            decoder_debug_reset();
+        }
+
+        if (mode != GAME_MODE_DEBUG)
+        {
+            decoder_reset_stream();
+        }
+    }
 
     if (force_send || mode != last_sent_panel_mode)
     {

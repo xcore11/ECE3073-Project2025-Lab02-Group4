@@ -8,8 +8,26 @@
 #include "control.h"
 
 #define DEBUG_MSG_MAX                   64
-#define DEBUG_LED_UPDATE_TICKS_PER_SEC  100u   /* leds_update_task updates every ~10 ms */
+#define DEBUG_LED_BLINK_DEFAULT_MS      1000u
 #define DEBUG_SPEAKER_DEFAULT_FREQ      1000
+#define DEBUG_SPEAKER_MIN_HALF_TICKS   1u
+
+#ifndef OS_TICKS_PER_SEC
+#define OS_TICKS_PER_SEC 100u
+#endif
+
+static uint32_t ms_to_os_ticks_local(uint32_t ms)
+{
+    uint32_t ticks = (uint32_t)(((uint64_t)ms * (uint64_t)OS_TICKS_PER_SEC + 999u) / 1000u);
+    return (ticks == 0u) ? 1u : ticks;
+}
+
+static uint32_t seconds_to_os_ticks_local(uint32_t seconds)
+{
+    if (seconds == 0u)
+        seconds = 1u;
+    return ms_to_os_ticks_local(seconds * 1000u);
+}
 
 static uint32_t last_debug_seq = 0;
 
@@ -25,6 +43,9 @@ static int ledr_blink_visible = 1;
 
 static uint32_t speaker_option = 0;
 static uint32_t speaker_duration_ticks_left = 0;
+static uint32_t speaker_last_service_tick = 0;
+static uint32_t speaker_last_toggle_tick = 0;
+static int speaker_output_level = 0;
 
 static uint32_t dbg_read32(uint32_t offset)
 {
@@ -89,15 +110,18 @@ void debug_control_init(void)
     debug_hex_message[0] = '\0';
 
     led_module_option = 0;
-    led_module_tick = 0;
+    led_module_tick = (uint32_t)OSTimeGet();
     led_module_blink_visible = 1;
 
     ledr_option = 0;
-    ledr_tick = 0;
+    ledr_tick = (uint32_t)OSTimeGet();
     ledr_blink_visible = 1;
 
     speaker_option = 0;
     speaker_duration_ticks_left = 0;
+    speaker_last_service_tick = (uint32_t)OSTimeGet();
+    speaker_last_toggle_tick = (uint32_t)OSTimeGet();
+    speaker_output_level = 0;
 
     clear_debug_mailbox();
     debug_control_all_outputs_off();
@@ -161,13 +185,13 @@ static void apply_debug_mailbox_update(uint32_t changed_mask)
 
     if ((changed_mask & DEBUG_CONTROL_MASK_LED_MODULE) != 0) {
         led_module_option = dbg_read32(FLAG_CONTROL_LED_MODULE);
-        led_module_tick = 0;
+        led_module_tick = (uint32_t)OSTimeGet();
         led_module_blink_visible = 1;
     }
 
     if ((changed_mask & DEBUG_CONTROL_MASK_LEDR) != 0) {
         ledr_option = dbg_read32(FLAG_CONTROL_LEDR);
-        ledr_tick = 0;
+        ledr_tick = (uint32_t)OSTimeGet();
         ledr_blink_visible = 1;
     }
 
@@ -181,9 +205,15 @@ static void apply_debug_mailbox_update(uint32_t changed_mask)
             play_speaker(0, 0);
         } else if ((speaker_option & DEBUG_SPEAKER_HAS_DURATION) != 0) {
             seconds = get_seconds_from_option(speaker_option, 1);
-            speaker_duration_ticks_left = seconds * 1000u;
+            speaker_duration_ticks_left = seconds_to_os_ticks_local(seconds);
+            speaker_last_service_tick = (uint32_t)OSTimeGet();
+            speaker_last_toggle_tick = (uint32_t)OSTimeGet();
+            speaker_output_level = 0;
         } else {
             speaker_duration_ticks_left = 0xFFFFFFFFu;
+            speaker_last_service_tick = (uint32_t)OSTimeGet();
+            speaker_last_toggle_tick = (uint32_t)OSTimeGet();
+            speaker_output_level = 0;
         }
     }
 }
@@ -214,15 +244,14 @@ static void update_led_module_debug(void)
         return;
     }
 
-    threshold = get_seconds_from_option(led_module_option, 1) * DEBUG_LED_UPDATE_TICKS_PER_SEC;
-    if (threshold == 0) {
-        threshold = DEBUG_LED_UPDATE_TICKS_PER_SEC;
-    }
+    threshold = seconds_to_os_ticks_local(get_seconds_from_option(led_module_option, 1));
 
-    led_module_tick++;
-    if (led_module_tick >= threshold) {
-        led_module_tick = 0;
-        led_module_blink_visible = !led_module_blink_visible;
+    {
+        uint32_t now_ticks = (uint32_t)OSTimeGet();
+        if ((uint32_t)(now_ticks - led_module_tick) >= threshold) {
+            led_module_tick = now_ticks;
+            led_module_blink_visible = !led_module_blink_visible;
+        }
     }
 
     set_led_module_bits(led_module_blink_visible ? bits : 0);
@@ -269,15 +298,14 @@ static void update_ledr_debug(void)
         return;
     }
 
-    threshold = get_seconds_from_option(ledr_option, 1) * DEBUG_LED_UPDATE_TICKS_PER_SEC;
-    if (threshold == 0) {
-        threshold = DEBUG_LED_UPDATE_TICKS_PER_SEC;
-    }
+    threshold = seconds_to_os_ticks_local(get_seconds_from_option(ledr_option, 1));
 
-    ledr_tick++;
-    if (ledr_tick >= threshold) {
-        ledr_tick = 0;
-        ledr_blink_visible = !ledr_blink_visible;
+    {
+        uint32_t now_ticks = (uint32_t)OSTimeGet();
+        if ((uint32_t)(now_ticks - ledr_tick) >= threshold) {
+            ledr_tick = now_ticks;
+            ledr_blink_visible = !ledr_blink_visible;
+        }
     }
 
     set_ledr_value(ledr_blink_visible ? pattern : 0);
@@ -305,31 +333,112 @@ void debug_control_update(void)
     update_ledr_debug();
 }
 
+static void debug_speaker_force_off(void)
+{
+    speaker_output_level = 0;
+    speaker_last_toggle_tick = (uint32_t)OSTimeGet();
+    IOWR_ALTERA_AVALON_PIO_DATA(PIO_SPEAKER_BASE, 0);
+    play_speaker(0, 0);
+}
+
+static uint32_t debug_speaker_half_period_ticks(int freq)
+{
+    uint32_t half_period_us;
+    uint32_t ticks;
+
+    if (freq <= 0) {
+        return 0u;
+    }
+
+    /*
+       RTOS-only speaker mode.
+
+       The speaker is toggled from the RTOS speaker task, so the real maximum
+       frequency is limited by the OS tick rate.  If freq is higher than what
+       the tick can represent, it is clamped to one toggle per RTOS tick rather
+       than becoming intermittent.  This is why very high commands like
+       10000 Hz will sound like the highest stable RTOS-tick tone, not a true
+       10000 Hz hardware-PWM tone.
+    */
+    half_period_us = (uint32_t)((500000u + (uint32_t)freq - 1u) / (uint32_t)freq);
+    if (half_period_us == 0u) {
+        half_period_us = 1u;
+    }
+
+    ticks = (uint32_t)(((uint64_t)half_period_us * (uint64_t)OS_TICKS_PER_SEC + 999999u) / 1000000u);
+    if (ticks < DEBUG_SPEAKER_MIN_HALF_TICKS) {
+        ticks = DEBUG_SPEAKER_MIN_HALF_TICKS;
+    }
+
+    return ticks;
+}
+
+static void run_debug_speaker_rtos_step(int freq)
+{
+    uint32_t now_ticks;
+    uint32_t half_ticks;
+
+    if (freq <= 0) {
+        debug_speaker_force_off();
+        return;
+    }
+
+    half_ticks = debug_speaker_half_period_ticks(freq);
+    if (half_ticks == 0u) {
+        debug_speaker_force_off();
+        return;
+    }
+
+    now_ticks = (uint32_t)OSTimeGet();
+
+    if ((uint32_t)(now_ticks - speaker_last_toggle_tick) >= half_ticks) {
+        speaker_last_toggle_tick = now_ticks;
+        speaker_output_level = !speaker_output_level;
+        IOWR_ALTERA_AVALON_PIO_DATA(PIO_SPEAKER_BASE, speaker_output_level ? 1 : 0);
+    }
+}
+
 void debug_control_service_speaker(int switch_enabled)
 {
     int freq;
 
-    if (!switch_enabled) {
-        play_speaker(0, 0);
+    /*
+       SW4 is the master speaker enable. No decoded DEBUG speaker command means
+       forced OFF; there is no default/test tone.
+    */
+    if (!switch_enabled || ((speaker_option & DEBUG_OPTION_VALID) == 0)) {
+        debug_speaker_force_off();
         return;
     }
 
-    if ((speaker_option & DEBUG_OPTION_VALID) != 0) {
-        freq = (int)(speaker_option & DEBUG_SPEAKER_FREQ_MASK);
-        if (freq <= 0) {
-            freq = DEBUG_SPEAKER_DEFAULT_FREQ;
-        }
-
-        if ((speaker_option & DEBUG_SPEAKER_HAS_DURATION) != 0) {
-            if (speaker_duration_ticks_left == 0) {
-                play_speaker(0, 0);
-                return;
-            }
-            speaker_duration_ticks_left--;
-        }
-    } else {
-        freq = DEBUG_SPEAKER_DEFAULT_FREQ;
+    freq = (int)(speaker_option & DEBUG_SPEAKER_FREQ_MASK);
+    if (freq <= 0) {
+        debug_speaker_force_off();
+        return;
     }
 
-    play_speaker(freq, 1);
+    /*
+       Duration support for DEBUG speaker:
+       - No FOR clause: continuous until SW4 OFF or DEBUG exits.
+       - FOR <n> SECOND: auto-off after n seconds.
+
+       Count down using RTOS ticks so the speaker remains RTOS-serviced rather
+       than busy-waiting.
+    */
+    if ((speaker_option & DEBUG_SPEAKER_HAS_DURATION) != 0) {
+        uint32_t now_ticks = (uint32_t)OSTimeGet();
+        uint32_t elapsed_ticks = now_ticks - speaker_last_service_tick;
+        speaker_last_service_tick = now_ticks;
+
+        if (speaker_duration_ticks_left == 0u || elapsed_ticks >= speaker_duration_ticks_left) {
+            speaker_duration_ticks_left = 0u;
+            speaker_option = 0u;
+            debug_speaker_force_off();
+            return;
+        }
+
+        speaker_duration_ticks_left -= elapsed_ticks;
+    }
+
+    run_debug_speaker_rtos_step(freq);
 }
