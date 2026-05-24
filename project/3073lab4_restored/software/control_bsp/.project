@@ -3,7 +3,6 @@
 	<name>control_bsp</name>
 	<comment></comment>
 	<projects>
-		<project>control</project>
 	</projects>
 	<buildSpec>
 		<buildCommand>
