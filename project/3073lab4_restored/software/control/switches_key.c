@@ -244,10 +244,6 @@ static void notify_img_and_vga_processors(void)
 #ifdef CON_VGA_IRQ_TX_BASE
     IOWR_ALTERA_AVALON_PIO_DATA(CON_VGA_IRQ_TX_BASE, 0x0);
 #endif
-#ifdef PIO_GPIO_BASE
-    GPIO_state = GPIO_state | 0x3;
-    IOWR_ALTERA_AVALON_PIO_DATA(PIO_GPIO_BASE, GPIO_state);
-#endif
 }
 
 static void switch_isr(void *context)
@@ -255,6 +251,12 @@ static void switch_isr(void *context)
     (void)context;
     IOWR_ALTERA_AVALON_PIO_EDGE_CAP(PIO_SW_BASE, CONTROL_SW_MASK);
     switch_state = IORD_ALTERA_AVALON_PIO_DATA(PIO_SW_BASE) & CONTROL_SW_MASK;
+
+#ifdef PIO_GPIO_BASE
+	GPIO_state = GPIO_state | 0x1;
+	IOWR_ALTERA_AVALON_PIO_DATA(PIO_GPIO_BASE, GPIO_state);
+#endif
+
     OSSemPost(input_update_sem);
 }
 
@@ -265,7 +267,10 @@ void input_task(void *pdata)
 
     while (1) {
         OSSemPend(input_update_sem, 0, &err);
-
+		#ifdef PIO_GPIO_BASE
+        	GPIO_state = GPIO_state & ~0x3;
+			IOWR_ALTERA_AVALON_PIO_DATA(PIO_GPIO_BASE, GPIO_state);
+		#endif
         publish_control_event(CONTROL_EVENT_SWITCH, (uint32_t)switch_state, 0);
 
         if ((~key_state) & CONTROL_KEY0_MASK) {
@@ -301,6 +306,12 @@ static void key_isr(void *context)
     (void)context;
     IOWR_ALTERA_AVALON_PIO_EDGE_CAP(PIO_PB_BASE, CONTROL_KEY_MASK);
     key_state = IORD_ALTERA_AVALON_PIO_DATA(PIO_PB_BASE) & CONTROL_KEY_MASK;
+
+#ifdef PIO_GPIO_BASE
+	GPIO_state = GPIO_state | 0x2;
+	IOWR_ALTERA_AVALON_PIO_DATA(PIO_GPIO_BASE, GPIO_state);
+#endif
+
     OSSemPost(input_update_sem);
 }
 
@@ -323,10 +334,6 @@ static void img_rx_isr(void *context)
 {
     (void)context;
     IOWR_ALTERA_AVALON_PIO_EDGE_CAP(CON_IMG_IRQ_RX_BASE, 0x1);
-#ifdef PIO_GPIO_BASE
-    IOWR_ALTERA_AVALON_PIO_DATA(PIO_GPIO_BASE, (GPIO_state & 0x2));
-    GPIO_state = GPIO_state & 0x2;
-#endif
     OSSemPost(leds_update_sem);
 }
 #endif
@@ -349,10 +356,6 @@ static void vga_rx_isr(void *context)
 {
     (void)context;
     IOWR_ALTERA_AVALON_PIO_EDGE_CAP(CON_VGA_IRQ_RX_BASE, 0x1);
-#ifdef PIO_GPIO_BASE
-    IOWR_ALTERA_AVALON_PIO_DATA(PIO_GPIO_BASE, (GPIO_state & 0x1));
-    GPIO_state = GPIO_state & 0x1;
-#endif
     OSSemPost(leds_update_sem);
 }
 #endif
