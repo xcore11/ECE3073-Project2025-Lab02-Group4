@@ -126,14 +126,14 @@ extern int accel_read_z(alt_32 *z);
 #define BATTLE_W                 10
 #define BATTLE_H                 10
 #define CELL_SIZE                16
-#define BOARD_X0                 18
+#define BOARD_X0                 24
 #define BOARD_Y0                 36
 #define BOARD_W_PX               (BATTLE_W * CELL_SIZE)
 #define BOARD_H_PX               (BATTLE_H * CELL_SIZE)
 
-#define PANEL_X0                 190
+#define PANEL_X0                 196
 #define PANEL_Y0                 12
-#define PANEL_W                  124
+#define PANEL_W                  118
 #define PANEL_H                  216
 
 #define CURSOR_MOVE_THRESHOLD    80
@@ -542,8 +542,9 @@ static void draw_static_frame(void)
     /* Left ocean frame. Draw once, not every update. */
     pt_draw_battle_board_backplate(10, 10, 174, 220);
 
-    pt_print_shadow(34, 18, "SEA RAIDERS", PT_GOLD);
-    pt_print_shadow(58, 30, "COVE", PT_CREAM);
+    /* Push the logo upward so it no longer covers the X-axis labels. */
+    pt_print_shadow(34, 2, "SEA RAIDERS", PT_GOLD);
+    pt_print_shadow(66, 14, "COVE", PT_CREAM);
 
     /* Board backplate. */
     pt_draw_battle_board_backplate(BOARD_X0 - 5, BOARD_Y0 - 5, BOARD_W_PX + 10, BOARD_H_PX + 10);
@@ -562,8 +563,11 @@ static void draw_static_frame(void)
         char s[2];
         s[0] = (char)('0' + y);
         s[1] = '\0';
-        vga_print_software_text(BOARD_X0 - 10, cell_top(y) + 4, s, PT_GOLD);
+        vga_print_software_text(BOARD_X0 - 14, cell_top(y) + 4, s, PT_GOLD);
     }
+
+    /* Decorative ship fills the lower empty area under the board. */
+    pt_draw_battle_bottom_ship(66, 199);
 
     /* Right HUD frame. */
     pt_draw_battle_panel(PANEL_X0, PANEL_Y0, PANEL_W, PANEL_H);

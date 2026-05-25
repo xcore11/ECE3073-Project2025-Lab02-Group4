@@ -45,6 +45,10 @@
 #define PT_LEAF         VGA_RGB332(0,6,0)
 #define PT_MOSS         VGA_RGB332(2,4,0)
 #define PT_DIRT         VGA_RGB332(4,2,0)
+#define PT_DIRT_DARK    VGA_RGB332(2,1,0)
+#define PT_DIRT_LIGHT   VGA_RGB332(6,3,0)
+#define PT_SAND         VGA_RGB332(6,4,1)
+#define PT_SAND_LIGHT   VGA_RGB332(7,5,2)
 #define PT_WOOD_DARK    VGA_RGB332(2,1,0)
 #define PT_WOOD         VGA_RGB332(5,2,0)
 #define PT_WOOD_LIGHT   VGA_RGB332(7,4,1)
@@ -85,6 +89,7 @@ void pt_draw_battle_ship_tile(int px, int py, int size, int revealed, int hit);
 void pt_draw_battle_cursor(int px, int py, int size);
 void pt_draw_battle_blast(int px, int py, int radius, int kind);
 void pt_draw_battle_bomb_icon(int x, int y, int kind, int selected);
+void pt_draw_battle_bottom_ship(int x, int y);
 void pt_draw_battle_win_popup(void);
 
 void pt_draw_canvas_background(void);
