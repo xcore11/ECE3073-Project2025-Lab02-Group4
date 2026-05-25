@@ -30,6 +30,15 @@
 
 void menu_init(void);
 void menu_draw(int selected_index);
+
+/*
+   Fast menu update path.
+   Use this when the menu is already on screen and only the selected game changes.
+   It redraws only the old option row, new option row, and the small selected-game
+   info strip instead of clearing/repainting the whole title screen.
+*/
+void menu_update_selection(int previous_index, int selected_index);
+
 int menu_get_selected_screen(int selected_index);
 
 #endif /* VGA_PROJECT_MENU_SCREEN_IDS_H_INCLUDED */

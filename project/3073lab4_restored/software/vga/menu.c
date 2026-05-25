@@ -1,73 +1,47 @@
 #include "menu.h"
 #include "vga.h"
+#include "pixel_theme.h"
 
 /*
-   Local RGB332 constants. Do not use COL_* here so this file cannot redefine
-   color aliases from vga.h.
-*/
-#define MENU_COL_BLACK   0x00
-#define MENU_COL_DARK    0x49
-#define MENU_COL_BLUE    0x03
-#define MENU_COL_GREEN   0x1C
-#define MENU_COL_CYAN    0x1F
-#define MENU_COL_RED     0xE0
-#define MENU_COL_PURPLE  0xE3
-#define MENU_COL_YELLOW  0xFC
-#define MENU_COL_WHITE   0xFF
+   Aether Tides Arcade main menu.
 
-static void draw_retro_border(void)
+   Important redraw behavior:
+   - menu_draw() is a full redraw used only when entering the menu screen.
+   - menu_update_selection() is the dynamic path used while tilting up/down.
+     It changes the highlighted game without refreshing the full VGA screen.
+
+   This version intentionally keeps the original main screen layout:
+   - no extra bottom blue information bar
+   - original option positions
+   - original static instruction text only
+*/
+
+#define MENU_ITEM_COUNT_LOCAL 4
+
+static const int menu_option_y[MENU_ITEM_COUNT_LOCAL] = {90, 118, 146, 174};
+static const char *menu_option_label[MENU_ITEM_COUNT_LOCAL] = {
+    "SEA RAIDERS",
+    "SERPENT ORCHARD",
+    "PIXEL STUDIO",
+    "DEBUG DOCK"
+};
+
+static int menu_index_is_valid(int index)
+{
+    return (index >= 0 && index < MENU_ITEM_COUNT_LOCAL);
+}
+
+static void menu_draw_all_options(int selected_index)
 {
     int i;
-
-    vga_draw_rectangle(0, 0, 320, 4, MENU_COL_CYAN);
-    vga_draw_rectangle(0, 236, 320, 4, MENU_COL_CYAN);
-    vga_draw_rectangle(0, 0, 4, 240, MENU_COL_CYAN);
-    vga_draw_rectangle(316, 0, 4, 240, MENU_COL_CYAN);
-
-    vga_draw_rectangle(8, 8, 304, 2, MENU_COL_PURPLE);
-    vga_draw_rectangle(8, 230, 304, 2, MENU_COL_PURPLE);
-    vga_draw_rectangle(8, 8, 2, 224, MENU_COL_PURPLE);
-    vga_draw_rectangle(310, 8, 2, 224, MENU_COL_PURPLE);
-
-    for (i = 0; i < 3; i++)
-    {
-        vga_draw_rectangle(16 + i * 8, 16, 4, 4, MENU_COL_YELLOW);
-        vga_draw_rectangle(280 + i * 8, 16, 4, 4, MENU_COL_YELLOW);
-        vga_draw_rectangle(16 + i * 8, 220, 4, 4, MENU_COL_YELLOW);
-        vga_draw_rectangle(280 + i * 8, 220, 4, 4, MENU_COL_YELLOW);
-    }
+    for (i = 0; i < MENU_ITEM_COUNT_LOCAL; i++)
+        pt_menu_draw_option(menu_option_y[i], menu_option_label[i], selected_index == i);
 }
 
-static void draw_scanline_effect(void)
+static void menu_draw_static_instruction(void)
 {
-    int y;
-
-    for (y = 28; y < 220; y += 14)
-        vga_draw_rectangle(20, y, 280, 1, MENU_COL_DARK);
-}
-
-static void draw_title(void)
-{
-    vga_print_software_text(54, 24, "FPGA RETRO", MENU_COL_YELLOW);
-    vga_print_software_text(44, 40, "GRAPHIC ARCADE", MENU_COL_GREEN);
-    vga_draw_rectangle(46, 58, 228, 3, MENU_COL_CYAN);
-    vga_draw_rectangle(64, 64, 192, 2, MENU_COL_PURPLE);
-}
-
-static void draw_menu_option(int y, const char *text, int selected)
-{
-    if (selected)
-    {
-        vga_draw_rectangle(22, y - 6, 276, 24, MENU_COL_BLUE);
-        vga_draw_rectangle(28, y - 2, 264, 16, MENU_COL_BLACK);
-        vga_print_software_text(38, y, ">", MENU_COL_YELLOW);
-        vga_print_software_text(62, y, text, MENU_COL_WHITE);
-        vga_print_software_text(278, y, "<", MENU_COL_YELLOW);
-    }
-    else
-    {
-        vga_print_software_text(62, y, text, MENU_COL_GREEN);
-    }
+    /* Keep the old/original main menu footer. No solid blue strip is drawn here. */
+    pt_print_shadow(36, 214, "TILT UP DOWN  KEY1 ENTER", PT_CREAM);
 }
 
 void menu_init(void)
@@ -77,19 +51,31 @@ void menu_init(void)
 
 void menu_draw(int selected_index)
 {
-    vga_fill_background(MENU_COL_BLACK);
+    if (!menu_index_is_valid(selected_index))
+        selected_index = 0;
 
-    draw_retro_border();
-    draw_scanline_effect();
-    draw_title();
+    pt_menu_draw_background();
+    pt_menu_draw_title();
+    menu_draw_all_options(selected_index);
+    menu_draw_static_instruction();
+}
 
-    draw_menu_option(84,  "BATTLESHIP EX",      selected_index == 0);
-    draw_menu_option(110, "ULTIMATE SNAKE",     selected_index == 1);
-    draw_menu_option(136, "DRAW PIXEL GAME",    selected_index == 2);
-    draw_menu_option(162, "DEBUG MENU",         selected_index == 3);
+void menu_update_selection(int previous_index, int selected_index)
+{
+    if (!menu_index_is_valid(selected_index))
+        selected_index = 0;
 
-    vga_print_software_text(40, 198, "TILT UP DOWN TO SELECT", MENU_COL_CYAN);
-    vga_print_software_text(62, 214, "KEY1 / IRQ TO ENTER", MENU_COL_YELLOW);
+    if (previous_index == selected_index)
+        return;
+
+    /*
+       Redraw only the two option rows that visually changed.
+       Do not redraw the footer and do not paint a bottom status strip.
+    */
+    if (menu_index_is_valid(previous_index))
+        pt_menu_draw_option(menu_option_y[previous_index], menu_option_label[previous_index], 0);
+
+    pt_menu_draw_option(menu_option_y[selected_index], menu_option_label[selected_index], 1);
 }
 
 int menu_get_selected_screen(int selected_index)

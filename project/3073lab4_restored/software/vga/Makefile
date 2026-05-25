@@ -151,6 +151,7 @@ C_SRCS += time.c
 C_SRCS += debug.c
 C_SRCS += draw.c
 C_SRCS += ship.c
+C_SRCS += pixel_theme.c
 CXX_SRCS :=
 ASM_SRCS :=
 

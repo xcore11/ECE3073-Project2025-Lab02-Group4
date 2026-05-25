@@ -58,27 +58,15 @@
 #define TEXT_REGION_W       320
 #define TEXT_REGION_H       100
 
-#define TEXT_START_X        10
+#define TEXT_START_X        0
 #define TEXT_START_Y        150
 #define TEXT_LINE_STEP      14
 #define DEBUG_MAX_LINES     6
-
-/*
-   Software font is 8 pixels wide per character.
-   Do not hard-limit debug rows to the old ESP/OCR row width.
-   Use the actual VGA text panel width so received sentences can occupy
-   almost the full 320-pixel box.
-
-   Capacity with the current values:
-       right edge = TEXT_REGION_X + TEXT_REGION_W = 320
-       start x    = TEXT_START_X = 10
-       margin     = 4
-       char width = 8
-       chars      = (320 - 10 - 4) / 8 = 38
-*/
 #define DEBUG_FONT_CHAR_W   8
-#define DEBUG_RIGHT_MARGIN  4
-#define DEBUG_LINE_CHARS    ((TEXT_REGION_X + TEXT_REGION_W - TEXT_START_X - DEBUG_RIGHT_MARGIN) / DEBUG_FONT_CHAR_W)
+#define DEBUG_RIGHT_MARGIN  0
+#define DEBUG_WIRE_ROW_CHARS 8  /* Arduino DEBUG OCR row width; keep short packets aligned. */
+#define DEBUG_VISIBLE_LINE_CHARS ((TEXT_REGION_X + TEXT_REGION_W - TEXT_START_X - DEBUG_RIGHT_MARGIN) / DEBUG_FONT_CHAR_W)
+#define DEBUG_LINE_CHARS    ((DEBUG_VISIBLE_LINE_CHARS / DEBUG_WIRE_ROW_CHARS) * DEBUG_WIRE_ROW_CHARS)
 
 #define VGA_BLACK           0x00
 #define VGA_DARK_BG         0x24
@@ -90,6 +78,34 @@
 #define VGA_IMAGE_BOX_BG    0xFF
 
 #define INVERT_IMAGE_GRAYSCALE /* unused for RGB332 payload */ 0
+
+#define DEBUG_TEXT_CONSOLE_PRINT 1
+#define DEBUG_SUPPRESS_SINGLE_CHAR_FRAGMENTS 1
+
+/*
+   IMG -> VGA text queue contract.
+   TEXT_BUFFER_BASE is no longer a single overwritable latest-string buffer.
+   It is a ring queue written only by IMG and drained only by VGA.
+*/
+#define TEXTQ_MAGIC_VALUE          0x31515854u  /* 'TXQ1' little-endian */
+#define TEXTQ_HEADER_BYTES         64u
+#define TEXTQ_SLOT_COUNT           30u
+#define TEXTQ_SLOT_BYTES           128u
+#define TEXTQ_SLOT_DATA_BYTES      112u
+
+#define TEXTQ_MAGIC_OFS            0u
+#define TEXTQ_WRITE_SEQ_OFS        4u
+#define TEXTQ_DROPPED_OFS          8u
+#define TEXTQ_SLOT_COUNT_OFS       12u
+#define TEXTQ_SLOT_BYTES_OFS       16u
+#define TEXTQ_LAST_LEN_OFS         20u
+#define TEXTQ_LAST_SLOT_OFS        24u
+
+#define TEXTQ_SLOTS_OFS            TEXTQ_HEADER_BYTES
+#define TEXTQ_SLOT_SEQ_OFS         0u
+#define TEXTQ_SLOT_LEN_OFS         4u
+#define TEXTQ_SLOT_FLAGS_OFS       8u
+#define TEXTQ_SLOT_DATA_OFS        12u
 
 #define STATUS_MAGIC0_OFS       0
 #define STATUS_MAGIC1_OFS       1
@@ -103,6 +119,7 @@ static int debug_line_count = 0;
 static uint32_t last_text_seq = 0;
 static uint32_t last_image_seq = 0;
 static int current_image_valid = 0;
+static int debug_last_line_is_text_fragment = 0;
 
 static uint16_t read_u16_le(volatile uint8_t *p)
 {
@@ -173,6 +190,141 @@ static uint8_t rgb332_to_vga_color(uint8_t rgb332)
        1 byte/pixel at 96x96.
     */
     return rgb332;
+}
+
+#if DEBUG_TEXT_CONSOLE_PRINT
+static void debug_console_print_escaped_char(char c)
+{
+    unsigned char uc = (unsigned char)c;
+
+    if (c == '\r')
+    {
+        printf("\\r");
+    }
+    else if (c == '\n')
+    {
+        printf("\\n");
+    }
+    else if (c == '\t')
+    {
+        printf("\\t");
+    }
+    else if (uc >= 32 && uc <= 126)
+    {
+        putchar(c);
+    }
+    else
+    {
+        printf("\\x%02X", (unsigned int)uc);
+    }
+}
+
+static void debug_console_print_buffer(const char *label, uint32_t seq, const char *data, uint16_t text_len)
+{
+    uint16_t i;
+
+    printf("[VGA DEBUG TEXTQ SLOT] %s seq=%lu len=%u raw=\"",
+           label ? label : "text",
+           (unsigned long)seq,
+           (unsigned int)text_len);
+
+    for (i = 0; i < text_len; i++)
+    {
+        debug_console_print_escaped_char(data[i]);
+    }
+
+    printf("\"\n");
+    fflush(stdout);
+}
+
+static void debug_console_print_lines(const char *reason)
+{
+    int i;
+
+    printf("[VGA DEBUG DISPLAY BUFFER] reason=%s count=%d line_width=%d\n",
+           reason,
+           debug_line_count,
+           DEBUG_LINE_CHARS);
+
+    for (i = 0; i < debug_line_count; i++)
+    {
+        printf("  line[%d] len=%u text=\"%s\"\n",
+               i,
+               (unsigned int)strlen(debug_lines[i]),
+               debug_lines[i]);
+    }
+
+    fflush(stdout);
+}
+#else
+#define debug_console_print_buffer(label, seq, data, text_len) do { (void)(label); (void)(seq); (void)(data); (void)(text_len); } while (0)
+#define debug_console_print_lines(reason) do { (void)(reason); } while (0)
+#endif
+
+static uint32_t textq_read32(uint32_t offset)
+{
+    return IORD_32DIRECT(TEXT_BUFFER_BASE, offset);
+}
+
+static uint8_t textq_read8(uint32_t offset)
+{
+    return (uint8_t)(IORD_8DIRECT(TEXT_BUFFER_BASE, offset) & 0xFF);
+}
+
+static uint32_t textq_slot_base(uint32_t slot_index)
+{
+    return TEXTQ_SLOTS_OFS + slot_index * TEXTQ_SLOT_BYTES;
+}
+
+static int textq_is_valid(void)
+{
+    return (textq_read32(TEXTQ_MAGIC_OFS) == TEXTQ_MAGIC_VALUE &&
+            textq_read32(TEXTQ_SLOT_COUNT_OFS) == TEXTQ_SLOT_COUNT &&
+            textq_read32(TEXTQ_SLOT_BYTES_OFS) == TEXTQ_SLOT_BYTES);
+}
+
+static uint32_t textq_write_seq(void)
+{
+    if (!textq_is_valid())
+        return shared_read32(FLAG_TEXT_READY_SHARED);
+
+    return textq_read32(TEXTQ_WRITE_SEQ_OFS);
+}
+
+static int textq_read_slot(uint32_t seq, char *out, uint16_t *out_len)
+{
+    uint32_t slot_index;
+    uint32_t base;
+    uint32_t slot_seq_before;
+    uint32_t slot_seq_after;
+    uint32_t len32;
+    uint32_t i;
+
+    if (!textq_is_valid() || seq == 0 || out == 0 || out_len == 0)
+        return 0;
+
+    slot_index = (seq - 1u) % TEXTQ_SLOT_COUNT;
+    base = textq_slot_base(slot_index);
+
+    slot_seq_before = textq_read32(base + TEXTQ_SLOT_SEQ_OFS);
+    if (slot_seq_before != seq)
+        return 0;
+
+    len32 = textq_read32(base + TEXTQ_SLOT_LEN_OFS);
+    if (len32 > TEXTQ_SLOT_DATA_BYTES)
+        len32 = TEXTQ_SLOT_DATA_BYTES;
+
+    for (i = 0; i < len32; i++)
+        out[i] = (char)textq_read8(base + TEXTQ_SLOT_DATA_OFS + i);
+
+    out[len32] = '\0';
+
+    slot_seq_after = textq_read32(base + TEXTQ_SLOT_SEQ_OFS);
+    if (slot_seq_after != seq)
+        return 0;
+
+    *out_len = (uint16_t)len32;
+    return 1;
 }
 
 static void draw_image_from_sdram(void)
@@ -246,8 +398,6 @@ static int debug_refresh_image_from_sdram(void)
     return 1;
 }
 
-static int debug_last_line_is_text_fragment = 0;
-
 static void debug_clear_lines(void)
 {
     int i;
@@ -292,6 +442,11 @@ static void debug_add_line(const char *line)
     debug_lines[debug_line_count][DEBUG_LINE_CHARS] = '\0';
     debug_line_count++;
 
+#if DEBUG_TEXT_CONSOLE_PRINT
+    printf("[VGA DEBUG ADD LINE] text=\"%s\"\n", debug_lines[debug_line_count - 1]);
+    fflush(stdout);
+#endif
+
     /* System/status lines should not be merged with the next OCR fragment. */
     debug_last_line_is_text_fragment = 0;
 }
@@ -299,9 +454,53 @@ static void debug_add_line(const char *line)
 static void debug_append_text_fragment(const char *fragment)
 {
     int i;
+    int fragment_len;
 
     if (fragment == 0 || fragment[0] == '\0')
         return;
+
+    fragment_len = (int)strlen(fragment);
+
+    /*
+       Normal realtime DEBUG packets arrive as fixed 8-character OCR slices.
+       The old code appended them one byte at a time into a 38-character VGA
+       line. Because 38 is not divisible by 8, the last one or two characters
+       of a slice could wrap onto the next VGA row and appear as lone letters
+       such as "Z" or lone numbers such as "5".
+
+       Keep one wire slice together whenever possible.  DEBUG_LINE_CHARS is
+       also forced to a multiple of DEBUG_WIRE_ROW_CHARS, so five 8-character
+       slices fit exactly across the 320-pixel text panel.
+    */
+    if (fragment_len > 0 && fragment_len <= DEBUG_WIRE_ROW_CHARS)
+    {
+        int last_index;
+        int len;
+
+        if (debug_line_count == 0 || !debug_last_line_is_text_fragment)
+        {
+            debug_make_empty_line_for_append();
+            debug_last_line_is_text_fragment = 1;
+        }
+
+        last_index = debug_line_count - 1;
+        len = (int)strlen(debug_lines[last_index]);
+
+        if (len > 0 && (len + fragment_len) > DEBUG_LINE_CHARS)
+        {
+            debug_make_empty_line_for_append();
+            debug_last_line_is_text_fragment = 1;
+            last_index = debug_line_count - 1;
+            len = 0;
+        }
+
+        for (i = 0; i < fragment_len && len < DEBUG_LINE_CHARS; i++)
+        {
+            debug_lines[last_index][len++] = fragment[i];
+        }
+        debug_lines[last_index][len] = '\0';
+        return;
+    }
 
     i = 0;
     while (fragment[i] != '\0')
@@ -318,7 +517,7 @@ static void debug_append_text_fragment(const char *fragment)
         }
 
         last_index = debug_line_count - 1;
-        len = strlen(debug_lines[last_index]);
+        len = (int)strlen(debug_lines[last_index]);
 
         if (len < DEBUG_LINE_CHARS)
         {
@@ -327,6 +526,16 @@ static void debug_append_text_fragment(const char *fragment)
             i++;
         }
     }
+}
+
+static void debug_end_current_text_instruction(void)
+{
+    /*
+       A real newline from IMG/Arduino means the next OCR text belongs to a
+       new debug instruction.  This keeps instruction boundaries, while still
+       allowing short fragments from separate packets to fill the full VGA box.
+    */
+    debug_last_line_is_text_fragment = 0;
 }
 
 static void debug_draw_text_panel(void)
@@ -357,28 +566,106 @@ static void debug_draw_text_panel(void)
     }
 }
 
-static void debug_append_text_from_sdram(uint16_t text_len)
+static int debug_buffer_contains_newline(const char *data, uint16_t text_len)
 {
-    char fragment[DEBUG_LINE_CHARS + 1];
-    int fragment_pos = 0;
     uint16_t i;
 
-    if (text_len == 0)
-        return;
-
-    if (text_len > 512)
-        text_len = 512;
-
-    memset(fragment, 0, sizeof(fragment));
+    if (data == 0)
+        return 0;
 
     for (i = 0; i < text_len; i++)
     {
-        char c = (char)(IORD_8DIRECT(TEXT_BUFFER_BASE, i) & 0xFF);
+        char c = data[i];
+        if (c == '\0')
+            break;
+        if (c == '\n' || c == '\r')
+            return 1;
+    }
+
+    return 0;
+}
+
+static uint16_t debug_effective_buffer_len(const char *data, uint16_t text_len)
+{
+    uint16_t i;
+    uint16_t last_meaningful = 0;
+
+    if (data == 0)
+        return 0;
+
+    for (i = 0; i < text_len; i++)
+    {
+        char c = data[i];
 
         if (c == '\0')
             break;
 
-        if (c == '\r' || c == '\n')
+        if (c == '\n' || c == '\r')
+        {
+            last_meaningful = (uint16_t)(i + 1);
+            continue;
+        }
+
+        if (c != ' ' && c != '\t')
+            last_meaningful = (uint16_t)(i + 1);
+    }
+
+    return last_meaningful;
+}
+
+static void debug_append_text_buffer(const char *data, uint16_t text_len, const char *source_label, uint32_t seq)
+{
+    char fragment[DEBUG_LINE_CHARS + 1];
+    int fragment_pos = 0;
+    uint16_t i;
+    uint16_t effective_len;
+    uint16_t read_len;
+    int has_newline;
+
+    if (data == 0 || text_len == 0)
+        return;
+
+    if (text_len > TEXTQ_SLOT_DATA_BYTES)
+        text_len = TEXTQ_SLOT_DATA_BYTES;
+
+    debug_console_print_buffer(source_label, seq, data, text_len);
+
+    has_newline = debug_buffer_contains_newline(data, text_len);
+    effective_len = debug_effective_buffer_len(data, text_len);
+    read_len = effective_len;
+
+#if DEBUG_SUPPRESS_SINGLE_CHAR_FRAGMENTS
+    if (!has_newline && effective_len <= 1)
+    {
+#if DEBUG_TEXT_CONSOLE_PRINT
+        printf("[VGA DEBUG SUPPRESS] ignored one-character fragment from queue, seq=%lu raw_len=%u effective_len=%u\n",
+               (unsigned long)seq,
+               (unsigned int)text_len,
+               (unsigned int)effective_len);
+        fflush(stdout);
+#endif
+        return;
+    }
+#endif
+
+    if (!has_newline && effective_len > 1 && effective_len < DEBUG_WIRE_ROW_CHARS)
+        effective_len = DEBUG_WIRE_ROW_CHARS;
+
+    memset(fragment, 0, sizeof(fragment));
+
+    for (i = 0; i < effective_len; i++)
+    {
+        char c;
+
+        if (i < read_len)
+            c = data[i];
+        else
+            c = ' ';
+
+        if (i < read_len && c == '\0')
+            break;
+
+        if (c == '\n' || c == '\r')
         {
             if (fragment_pos > 0)
             {
@@ -388,12 +675,7 @@ static void debug_append_text_from_sdram(uint16_t text_len)
                 memset(fragment, 0, sizeof(fragment));
             }
 
-            /*
-               Do not force a VGA newline here.
-               The ESP/Python debug stream may arrive as several short OCR rows
-               such as redledmo / duleblin / kingever.  Those fragments should
-               be stitched together and wrapped only when the VGA text box is full.
-            */
+            debug_end_current_text_instruction();
             continue;
         }
 
@@ -418,8 +700,79 @@ static void debug_append_text_from_sdram(uint16_t text_len)
         fragment[fragment_pos] = '\0';
         debug_append_text_fragment(fragment);
     }
+}
 
-    debug_draw_text_panel();
+static void debug_drain_text_queue_to(uint32_t newest_seq)
+{
+    char slot_text[TEXTQ_SLOT_DATA_BYTES + 1];
+    uint16_t slot_len;
+    uint32_t seq;
+    uint32_t skipped;
+    int drew_any = 0;
+
+    if (!textq_is_valid())
+    {
+#if DEBUG_TEXT_CONSOLE_PRINT
+        printf("[VGA DEBUG TEXTQ] queue invalid; update both image/spi.c and vga/debug.c together\n");
+        fflush(stdout);
+#endif
+        last_text_seq = newest_seq;
+        return;
+    }
+
+    if (newest_seq < last_text_seq)
+    {
+#if DEBUG_TEXT_CONSOLE_PRINT
+        printf("[VGA DEBUG TEXTQ] sequence reset old=%lu new=%lu\n",
+               (unsigned long)last_text_seq,
+               (unsigned long)newest_seq);
+        fflush(stdout);
+#endif
+        last_text_seq = 0;
+    }
+
+    if ((newest_seq - last_text_seq) > TEXTQ_SLOT_COUNT)
+    {
+        skipped = newest_seq - last_text_seq - TEXTQ_SLOT_COUNT;
+        last_text_seq = newest_seq - TEXTQ_SLOT_COUNT;
+        debug_add_line("TEXT QUEUE OVERRUN");
+        drew_any = 1;
+
+#if DEBUG_TEXT_CONSOLE_PRINT
+        printf("[VGA DEBUG TEXTQ] overrun skipped=%lu newest=%lu\n",
+               (unsigned long)skipped,
+               (unsigned long)newest_seq);
+        fflush(stdout);
+#endif
+    }
+
+    while (last_text_seq < newest_seq)
+    {
+        seq = last_text_seq + 1u;
+        slot_len = 0;
+
+        if (textq_read_slot(seq, slot_text, &slot_len))
+        {
+            debug_append_text_buffer(slot_text, slot_len, "queue", seq);
+            drew_any = 1;
+        }
+        else
+        {
+#if DEBUG_TEXT_CONSOLE_PRINT
+            printf("[VGA DEBUG TEXTQ] missing/not-committed slot seq=%lu\n",
+                   (unsigned long)seq);
+            fflush(stdout);
+#endif
+        }
+
+        last_text_seq = seq;
+    }
+
+    if (drew_any)
+    {
+        debug_draw_text_panel();
+        debug_console_print_lines("after_text_queue");
+    }
 }
 
 static void draw_static_screen(void)
@@ -440,8 +793,8 @@ static void draw_static_screen(void)
 
 static void display_capture_from_sdram(void)
 {
-    uint16_t text_len;
     uint32_t image_len;
+    uint32_t newest_text_seq;
 
     if (!packet_ready())
     {
@@ -452,7 +805,6 @@ static void display_capture_from_sdram(void)
         return;
     }
 
-    text_len = get_text_len();
     image_len = get_image_len();
 
     if (image_len > 0)
@@ -460,11 +812,12 @@ static void display_capture_from_sdram(void)
         debug_refresh_image_from_sdram();
     }
 
-    if (text_len > 0)
-        debug_append_text_from_sdram(text_len);
+    newest_text_seq = textq_write_seq();
+    if (newest_text_seq != last_text_seq)
+        debug_drain_text_queue_to(newest_text_seq);
 
-    printf("Debug display update: text_len=%u image_len=%lu\n",
-           (unsigned int)text_len,
+    printf("Debug display update: text_seq=%lu image_len=%lu\n",
+           (unsigned long)newest_text_seq,
            (unsigned long)image_len);
     fflush(stdout);
 }
@@ -472,9 +825,16 @@ static void display_capture_from_sdram(void)
 void debug_init(void)
 {
     debug_clear_lines();
-    last_text_seq = shared_read32(FLAG_TEXT_READY_SHARED);
+    last_text_seq = textq_write_seq();
     last_image_seq = shared_read32(FLAG_IMAGE_READY);
     current_image_valid = debug_image_buffer_should_be_valid();
+
+#if DEBUG_TEXT_CONSOLE_PRINT
+    printf("[VGA DEBUG TEXTQ INIT] valid=%d last_text_seq=%lu\n",
+           textq_is_valid(),
+           (unsigned long)last_text_seq);
+    fflush(stdout);
+#endif
 
     draw_static_screen();
 }
@@ -484,7 +844,7 @@ void debug_update(void)
     uint32_t text_seq;
     uint32_t image_seq;
 
-    text_seq = shared_read32(FLAG_TEXT_READY_SHARED);
+    text_seq = textq_write_seq();
     image_seq = shared_read32(FLAG_IMAGE_READY);
 
     if (image_seq != last_image_seq)
@@ -500,10 +860,17 @@ void debug_update(void)
 
     if (text_seq != last_text_seq)
     {
-        last_text_seq = text_seq;
+#if DEBUG_TEXT_CONSOLE_PRINT
+        printf("[VGA DEBUG TEXTQ SEQ] old=%lu new=%lu valid=%d packet_ready=%d image_len=%lu\n",
+               (unsigned long)last_text_seq,
+               (unsigned long)text_seq,
+               textq_is_valid(),
+               packet_ready(),
+               packet_ready() ? (unsigned long)get_image_len() : 0ul);
+        fflush(stdout);
+#endif
 
-        if (packet_ready())
-            debug_append_text_from_sdram(get_text_len());
+        debug_drain_text_queue_to(text_seq);
     }
 }
 

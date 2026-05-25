@@ -13,6 +13,7 @@
  */
 
 #include "vga.h"
+#include "pixel_theme.h"
 #include "io.h"
 
 #include <stdint.h>
@@ -63,18 +64,32 @@
 #define DRAW_STATUS_BAD_COLOR          2
 
 #define DRAW_GRID_X0                   64
-#define DRAW_GRID_Y0                   24
+#define DRAW_GRID_Y0                   34
 #define DRAW_GRID_W                    96
 #define DRAW_GRID_H                    96
 #define DRAW_CELL_SIZE                 2
 
+#ifndef COL_BLACK
 #define COL_BLACK                      0x00
+#endif
+#ifndef COL_GREEN
 #define COL_GREEN                      0x1C
+#endif
+#ifndef COL_CYAN
 #define COL_CYAN                       0x1F
+#endif
+#ifndef COL_YELLOW
 #define COL_YELLOW                     0xFC
+#endif
+#ifndef COL_RED
 #define COL_RED                        0xE0
+#endif
+#ifndef COL_BLUE
 #define COL_BLUE                       0x03
+#endif
+#ifndef COL_WHITE
 #define COL_WHITE                      0xFF
+#endif
 
 static uint32_t time_draw_last_seq = 0;
 static uint32_t time_draw_last_bg_seq = 0;
@@ -213,16 +228,12 @@ static void time_draw_cell(int x, int y, uint8_t color)
     px = DRAW_GRID_X0 + x * DRAW_CELL_SIZE;
     py = DRAW_GRID_Y0 + y * DRAW_CELL_SIZE;
 
-    vga_draw_rectangle(px, py, DRAW_CELL_SIZE, DRAW_CELL_SIZE, color);
+    pt_draw_canvas_cell(px, py, DRAW_CELL_SIZE, color);
 }
 
 static void time_draw_rx_indicator(int active)
 {
-    int color = active ? RX_ACTIVE_COLOR : RX_IDLE_COLOR;
-
-    vga_draw_rectangle(10, 8, 44, 14, COL_BLACK);
-    vga_draw_circle(16, 15, 4, color);
-    vga_print_software_text(24, 10, active ? "RX" : "ID", color);
+    pt_draw_rx_badge(10, 7, active, active ? "RX" : "ID");
 }
 
 static void time_draw_update_rx_status(void)
@@ -257,10 +268,7 @@ static void time_draw_border(void)
     int w = DRAW_GRID_W * DRAW_CELL_SIZE + 4;
     int h = DRAW_GRID_H * DRAW_CELL_SIZE + 4;
 
-    vga_draw_rectangle(x, y, w, 2, COL_CYAN);
-    vga_draw_rectangle(x, y + h - 2, w, 2, COL_CYAN);
-    vga_draw_rectangle(x, y, 2, h, COL_CYAN);
-    vga_draw_rectangle(x + w - 2, y, 2, h, COL_CYAN);
+    pt_draw_canvas_frame(x, y, w, h);
 }
 
 static void time_draw_full_grid(void)
@@ -396,13 +404,14 @@ void __attribute__((weak)) draw_game_init(void)
     time_draw_rx_ticks = 0;
     time_draw_rx_indicator_state = -1;
 
-    vga_fill_background(COL_BLACK);
-    vga_print_software_text(90, 8, "DRAW PIXEL", COL_GREEN);
-    vga_print_software_text(36, 220, "96X96 RGB332 REALTIME DRAW / DBG BG", COL_YELLOW);
+    pt_draw_canvas_background();
 
     time_draw_rx_indicator(0);
     time_draw_border();
     time_draw_full_grid();
+
+    /* Draw this after the frame/grid so it is not hidden by the canvas shadow. */
+    pt_print_shadow(112, 230, "96 X 96", PT_GOLD);
 
     time_shared_write32(DRAW_MB_READY, 0);
     time_shared_write32(DRAW_MB_ACK, 0);

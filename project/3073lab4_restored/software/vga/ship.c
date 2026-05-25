@@ -1,5 +1,6 @@
 #include "ship.h"
 #include "vga.h"
+#include "pixel_theme.h"
 
 #include "system.h"
 #include "io.h"
@@ -125,14 +126,14 @@ extern int accel_read_z(alt_32 *z);
 #define BATTLE_W                 10
 #define BATTLE_H                 10
 #define CELL_SIZE                16
-#define BOARD_X0                 18
+#define BOARD_X0                 24
 #define BOARD_Y0                 36
 #define BOARD_W_PX               (BATTLE_W * CELL_SIZE)
 #define BOARD_H_PX               (BATTLE_H * CELL_SIZE)
 
-#define PANEL_X0                 190
+#define PANEL_X0                 196
 #define PANEL_Y0                 12
-#define PANEL_W                  124
+#define PANEL_W                  118
 #define PANEL_H                  216
 
 #define CURSOR_MOVE_THRESHOLD    80
@@ -449,19 +450,12 @@ static void clear_layout_and_round(void)
    ========================= */
 static void draw_bevel_box(int x, int y, int w, int h, int fill)
 {
-    vga_draw_rectangle(x, y, w, h, fill);
-    vga_draw_rectangle(x, y, w, 1, COL_WHITE);
-    vga_draw_rectangle(x, y, 1, h, COL_WHITE);
-    vga_draw_rectangle(x, y + h - 1, w, 1, COL_DARK);
-    vga_draw_rectangle(x + w - 1, y, 1, h, COL_DARK);
+    pt_draw_shadow_box(x, y, w, h, (vga_color_t)fill, PT_GOLD, PT_SHADOW);
 }
 
 static void draw_neon_box(int x, int y, int w, int h, int fill, int edge)
 {
-    vga_draw_rectangle(x - 1, y - 1, w + 2, h + 2, edge);
-    draw_bevel_box(x, y, w, h, fill);
-    vga_draw_rectangle(x + 2, y + 2, w - 4, 1, edge);
-    vga_draw_rectangle(x + 2, y + h - 3, w - 4, 1, edge);
+    pt_draw_shadow_box(x, y, w, h, (vga_color_t)fill, (vga_color_t)edge, PT_SHADOW);
 }
 
 static void draw_sidebar_text_line(int y, const char *text, int color)
@@ -481,37 +475,12 @@ static int reveal_visible_for_cell(int gx)
 
 static void draw_water_tile(int px, int py, int miss)
 {
-    vga_draw_rectangle(px + 1, py + 1, CELL_SIZE - 2, CELL_SIZE - 2, COL_BLUE);
-    vga_draw_rectangle(px + 2, py + 4, CELL_SIZE - 4, 1, COL_CYAN);
-    vga_draw_rectangle(px + 4, py + 10, CELL_SIZE - 8, 1, COL_CYAN);
-
-    if (miss)
-    {
-        vga_draw_circle(px + CELL_SIZE / 2, py + CELL_SIZE / 2, 3, COL_WHITE);
-        vga_draw_rectangle(px + 7, py + 3, 2, CELL_SIZE - 6, COL_WHITE);
-        vga_draw_rectangle(px + 3, py + 7, CELL_SIZE - 6, 2, COL_WHITE);
-    }
+    pt_draw_battle_ocean_tile(px, py, CELL_SIZE, miss);
 }
 
 static void draw_ship_tile(int px, int py, int revealed, int hit)
 {
-    if (hit)
-    {
-        vga_draw_rectangle(px + 1, py + 1, CELL_SIZE - 2, CELL_SIZE - 2, COL_RED);
-        vga_draw_rectangle(px + 3, py + 3, CELL_SIZE - 6, CELL_SIZE - 6, COL_YELLOW);
-        vga_draw_rectangle(px + 6, py + 2, 4, CELL_SIZE - 4, COL_WHITE);
-        vga_draw_rectangle(px + 2, py + 6, CELL_SIZE - 4, 4, COL_WHITE);
-        return;
-    }
-
-    if (revealed)
-    {
-        vga_draw_rectangle(px + 2, py + 2, CELL_SIZE - 4, CELL_SIZE - 4, COL_WHITE);
-        vga_draw_rectangle(px + 4, py + 4, CELL_SIZE - 8, CELL_SIZE - 8, COL_DARK);
-        vga_draw_rectangle(px + 4, py + 5, CELL_SIZE - 8, 2, COL_CYAN);
-        vga_draw_rectangle(px + 4, py + CELL_SIZE - 7, CELL_SIZE - 8, 2, COL_CYAN);
-        vga_draw_circle(px + CELL_SIZE / 2, py + CELL_SIZE / 2, 2, COL_YELLOW);
-    }
+    pt_draw_battle_ship_tile(px, py, CELL_SIZE, revealed, hit);
 }
 
 static void draw_cell_base(int gx, int gy)
@@ -522,8 +491,7 @@ static void draw_cell_base(int gx, int gy)
     int shot = shot_map[gy][gx];
     int revealed = reveal_visible_for_cell(gx);
 
-    /* Cell frame. */
-    vga_draw_rectangle(px, py, CELL_SIZE, CELL_SIZE, COL_CYAN);
+    /* Cell frame + water body. */
     draw_water_tile(px, py, shot == SHOT_MISS);
 
     if (ship && (revealed || shot == SHOT_HIT))
@@ -537,15 +505,7 @@ static void draw_cursor(void)
     int px = cell_left(cursor_x);
     int py = cell_top(cursor_y);
 
-    vga_draw_rectangle(px, py, CELL_SIZE, 1, COL_YELLOW);
-    vga_draw_rectangle(px, py + CELL_SIZE - 1, CELL_SIZE, 1, COL_YELLOW);
-    vga_draw_rectangle(px, py, 1, CELL_SIZE, COL_YELLOW);
-    vga_draw_rectangle(px + CELL_SIZE - 1, py, 1, CELL_SIZE, COL_YELLOW);
-
-    vga_draw_rectangle(px + 4, py + 4, CELL_SIZE - 8, 1, COL_WHITE);
-    vga_draw_rectangle(px + 4, py + CELL_SIZE - 5, CELL_SIZE - 8, 1, COL_WHITE);
-    vga_draw_rectangle(px + 4, py + 4, 1, CELL_SIZE - 8, COL_WHITE);
-    vga_draw_rectangle(px + CELL_SIZE - 5, py + 4, 1, CELL_SIZE - 8, COL_WHITE);
+    pt_draw_battle_cursor(px, py, CELL_SIZE);
 }
 
 static void draw_active_blasts(void)
@@ -568,21 +528,7 @@ static void draw_active_blasts(void)
         if (r < 1) r = 1;
         if (r > 7) r = 7;
 
-        vga_draw_circle(px, py, r, COL_YELLOW);
-
-        if (blasts[i].kind >= 1)
-        {
-            vga_draw_rectangle(px - r, py, r * 2, 1, COL_RED);
-            vga_draw_rectangle(px, py - r, 1, r * 2, COL_RED);
-        }
-
-        if (blasts[i].kind >= 2)
-        {
-            vga_draw_rectangle(px - r, py - r, 2, 2, COL_WHITE);
-            vga_draw_rectangle(px + r - 1, py - r, 2, 2, COL_WHITE);
-            vga_draw_rectangle(px - r, py + r - 1, 2, 2, COL_WHITE);
-            vga_draw_rectangle(px + r - 1, py + r - 1, 2, 2, COL_WHITE);
-        }
+        pt_draw_battle_blast(px, py, r, blasts[i].kind);
     }
 }
 
@@ -591,20 +537,17 @@ static void draw_static_frame(void)
     int y;
     int x;
 
-    vga_fill_background(COL_BLACK);
+    pt_draw_battle_background();
 
     /* Left ocean frame. Draw once, not every update. */
-    draw_neon_box(10, 10, 174, 220, COL_BLUE, COL_CYAN);
-    draw_neon_box(14, 14, 166, 212, COL_DARK, COL_PURPLE);
+    pt_draw_battle_board_backplate(2, 10, 184, 220);
 
-    for (y = 22; y < 220; y += 14)
-        vga_draw_rectangle(20, y, 154, 1, (y & 16) ? COL_CYAN : COL_BLUE);
-
-    vga_print_software_text(32, 18, "BATTLESHIP", COL_YELLOW);
-    vga_print_software_text(50, 28, "EX", COL_WHITE);
+    /* Push the logo upward so it no longer covers the X-axis labels. */
+    pt_print_shadow(34, 2, "SEA RAIDERS", PT_GOLD);
+    pt_print_shadow(66, 14, "COVE", PT_CREAM);
 
     /* Board backplate. */
-    draw_neon_box(BOARD_X0 - 5, BOARD_Y0 - 5, BOARD_W_PX + 10, BOARD_H_PX + 10, COL_DARK, COL_CYAN);
+    pt_draw_battle_board_backplate(BOARD_X0 - 12, BOARD_Y0 - 5, BOARD_W_PX + 17, BOARD_H_PX + 10);
 
     /* Grid labels. */
     for (x = 0; x < BATTLE_W; x++)
@@ -612,19 +555,22 @@ static void draw_static_frame(void)
         char s[2];
         s[0] = (char)('0' + x);
         s[1] = '\0';
-        vga_print_software_text(cell_left(x) + 5, BOARD_Y0 - 11, s, COL_YELLOW);
+        vga_print_software_text(cell_left(x) + 5, BOARD_Y0 - 11, s, PT_GOLD);
     }
 
     for (y = 0; y < BATTLE_H; y++)
     {
         char s[2];
-        s[0] = (char)('0' + y);
+        s[0] = (char)('A' + y);
         s[1] = '\0';
-        vga_print_software_text(BOARD_X0 - 10, cell_top(y) + 4, s, COL_YELLOW);
+        vga_print_software_text(BOARD_X0 - 17, cell_top(y) + 4, s, PT_GOLD);
     }
 
+    /* Decorative ship fills the lower empty area under the board. */
+    pt_draw_battle_bottom_ship(66, 199);
+
     /* Right HUD frame. */
-    draw_neon_box(PANEL_X0, PANEL_Y0, PANEL_W, PANEL_H, COL_DARK, COL_PURPLE);
+    pt_draw_battle_panel(PANEL_X0, PANEL_Y0, PANEL_W, PANEL_H);
 
     mark_all_cells_dirty();
     hud_dirty = 1;
@@ -648,16 +594,16 @@ static void draw_hud_bar(int y, int color, int value, int max_value)
     if (w < 0) w = 0;
     if (w > 76) w = 76;
 
-    vga_draw_rectangle(PANEL_X0 + 8, y, 78, 4, COL_BLACK);
-    vga_draw_rectangle(PANEL_X0 + 8, y, w, 4, color);
+    vga_draw_rectangle(PANEL_X0 + 8, y, 78, 5, PT_SHADOW);
+    vga_draw_rectangle(PANEL_X0 + 8, y, w, 5, color);
+    vga_draw_rectangle(PANEL_X0 + 8, y, 78, 1, PT_CREAM);
 }
 
 static void battle_draw_rx_indicator(void)
 {
     int color = battle_rx_indicator_active ? RX_ACTIVE_COLOR : RX_IDLE_COLOR;
 
-    vga_draw_rectangle(PANEL_X0 + 86, 22, 22, 10, COL_BLACK);
-    vga_draw_circle(PANEL_X0 + 93, 27, 4, color);
+    pt_draw_rx_badge(PANEL_X0 + 72, 18, battle_rx_indicator_active, "RX");
 }
 
 static void battle_update_rx_status(void)
@@ -690,59 +636,53 @@ static void draw_hud(void)
     int total = loaded_ship_cells > 0 ? loaded_ship_cells : 1;
 
     /* Clear only HUD interior, not entire screen. */
-    vga_draw_rectangle(PANEL_X0 + 4, PANEL_Y0 + 4, PANEL_W - 8, PANEL_H - 8, COL_BLACK);
+    vga_draw_rectangle(PANEL_X0 + 4, PANEL_Y0 + 4, PANEL_W - 8, PANEL_H - 8, PT_INK);
 
-    draw_sidebar_text_line(24, "ARSENAL", COL_YELLOW);
-    vga_print_software_text(PANEL_X0 + 64, 24, "RX", battle_rx_indicator_active ? RX_ACTIVE_COLOR : RX_IDLE_COLOR);
+    draw_sidebar_text_line(20, "SEA TOOLS", PT_GOLD);
     battle_draw_rx_indicator();
 
-    snprintf(line, sizeof(line), "MD:%s", bomb_name());
-    draw_sidebar_text_line(40, line, COL_WHITE);
+    snprintf(line, sizeof(line), "MODE:%s", bomb_name());
+    draw_sidebar_text_line(38, line, PT_CREAM);
 
-    draw_sidebar_text_line(54, "SW5:STD", selected_bomb == BOMB_STANDARD ? COL_YELLOW : COL_CYAN);
+    pt_draw_battle_bomb_icon(PANEL_X0 + 8, 54, 0, selected_bomb == BOMB_STANDARD);
+    pt_draw_battle_bomb_icon(PANEL_X0 + 45, 54, 2, selected_bomb == BOMB_SQUARE);
+    pt_draw_battle_bomb_icon(PANEL_X0 + 82, 54, 1, selected_bomb == BOMB_CROSS);
 
-    snprintf(line, sizeof(line), "SW6:SQ%d", square_bombs_left);
-    draw_sidebar_text_line(68, line, selected_bomb == BOMB_SQUARE ? COL_YELLOW : COL_CYAN);
+    draw_sidebar_text_line(80, "S5   S6   S7", PT_WATER_LIGHT);
 
-    snprintf(line, sizeof(line), "SW7:CR%d", cross_bombs_left);
-    draw_sidebar_text_line(82, line, selected_bomb == BOMB_CROSS ? COL_YELLOW : COL_CYAN);
+    snprintf(line, sizeof(line), "SQ:%d CR:%d", square_bombs_left, cross_bombs_left);
+    draw_sidebar_text_line(92, line, PT_CREAM);
 
-    draw_sidebar_text_line(102, "DMG", COL_RED);
-    draw_hud_bar(115, COL_RED, destroyed_ship_cells, total);
+    draw_sidebar_text_line(108, "DMG", PT_RED);
+    draw_hud_bar(119, PT_RED, destroyed_ship_cells, total);
 
-    draw_sidebar_text_line(126, "FLEET", COL_GREEN);
-    draw_hud_bar(139, COL_GREEN, loaded_ship_cells, 30);
+    draw_sidebar_text_line(132, "FLEET", PT_GRASS_LIGHT);
+    draw_hud_bar(143, PT_GRASS_LIGHT, loaded_ship_cells, 30);
 
     snprintf(line, sizeof(line), "CUR:%02d,%02d", cursor_x, cursor_y);
-    draw_sidebar_text_line(152, line, COL_WHITE);
+    draw_sidebar_text_line(156, line, PT_WHITE);
 
     snprintf(line, sizeof(line), "HIT:%02d/%02d", destroyed_ship_cells, loaded_ship_cells);
-    draw_sidebar_text_line(166, line, COL_WHITE);
+    draw_sidebar_text_line(170, line, PT_WHITE);
 
     if (!layout_loaded)
-        draw_sidebar_text_line(182, "WAIT MAP", COL_RED);
+        draw_sidebar_text_line(184, "WAIT MAP", PT_RED);
     else if (destroyed_ship_cells >= loaded_ship_cells && loaded_ship_cells > 0)
-        draw_sidebar_text_line(182, "FLEET DOWN", COL_YELLOW);
+        draw_sidebar_text_line(184, "FLEET DOWN", PT_GOLD);
     else if (reveal_enabled)
-        draw_sidebar_text_line(182, "REVEAL ON", COL_GREEN);
+        draw_sidebar_text_line(184, "REVEAL ON", PT_GRASS_LIGHT);
     else
-        draw_sidebar_text_line(182, "HIDDEN", COL_GREEN);
+        draw_sidebar_text_line(184, "HIDDEN", PT_GRASS_LIGHT);
 
-    draw_sidebar_text_line(190, "K0 FIRE", COL_CYAN);
-    draw_sidebar_text_line(202, "K1 REVEAL", COL_CYAN);
-    draw_sidebar_text_line(214, "SW9 MENU", COL_CYAN);
+    draw_sidebar_text_line(196, "K0 USE", PT_WATER_LIGHT);
+    draw_sidebar_text_line(208, "K1 REVEAL", PT_WATER_LIGHT);
+    draw_sidebar_text_line(220, "SW9 MENU", PT_WATER_LIGHT);
 }
 
 
 static void draw_fleet_down_popup(void)
 {
-    draw_neon_box(42, 72, 236, 92, COL_BLACK, COL_YELLOW);
-    vga_draw_rectangle(48, 78, 224, 80, COL_DARK);
-
-    vga_print_software_text(86, 88, "FLEET DOWN!", COL_YELLOW);
-    vga_print_software_text(64, 110, "SW8 CONTINUE", COL_GREEN);
-    vga_print_software_text(64, 126, "KEYS LOCKED", COL_CYAN);
-    vga_print_software_text(64, 142, "SW9 MENU", COL_WHITE);
+    pt_draw_battle_win_popup();
 }
 
 static void redraw_dirty_cells_and_overlays(void)
