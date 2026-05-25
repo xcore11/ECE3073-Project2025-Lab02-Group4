@@ -1,5 +1,6 @@
 #include "snake.h"
 #include "vga.h"
+#include "pixel_theme.h"
 
 #include "system.h"
 #include "io.h"
@@ -532,12 +533,28 @@ static void arena_set_cell(int x, int y, uint8_t cell_value)
     shared_mirror_cell(x, y);
 }
 
-static void draw_cell(int cell_x, int cell_y, unsigned char color)
+static void draw_cell_background(int cell_x, int cell_y)
 {
     int px = GRID_X0 + (cell_x * CELL_SIZE);
     int py = GRID_Y0 + (cell_y * CELL_SIZE);
 
-    vga_draw_rectangle(px, py, CELL_SIZE - 1, CELL_SIZE - 1, color);
+    pt_draw_snake_cell_background(px, py, CELL_SIZE, cell_x, cell_y);
+}
+
+static void draw_snake_body_cell(int cell_x, int cell_y)
+{
+    int px = GRID_X0 + (cell_x * CELL_SIZE);
+    int py = GRID_Y0 + (cell_y * CELL_SIZE);
+
+    pt_draw_snake_body(px, py, CELL_SIZE);
+}
+
+static void draw_snake_head_cell(int cell_x, int cell_y)
+{
+    int px = GRID_X0 + (cell_x * CELL_SIZE);
+    int py = GRID_Y0 + (cell_y * CELL_SIZE);
+
+    pt_draw_snake_head(px, py, CELL_SIZE, (int)current_dir);
 }
 
 static void draw_static_cell(int cell_x, int cell_y)
@@ -550,15 +567,29 @@ static void draw_static_cell(int cell_x, int cell_y)
     value = arena_grid[grid_index(cell_x, cell_y)];
 
     if (value == SNAKE_CELL_WALL)
-        draw_cell(cell_x, cell_y, SNAKE_COLOR_WALL);
+    {
+        draw_cell_background(cell_x, cell_y);
+        pt_draw_snake_wall(GRID_X0 + cell_x * CELL_SIZE, GRID_Y0 + cell_y * CELL_SIZE, CELL_SIZE);
+    }
     else if (value == SNAKE_CELL_APPLE)
-        draw_cell(cell_x, cell_y, SNAKE_COLOR_APPLE);
+    {
+        draw_cell_background(cell_x, cell_y);
+        pt_draw_snake_apple(GRID_X0 + cell_x * CELL_SIZE, GRID_Y0 + cell_y * CELL_SIZE, CELL_SIZE);
+    }
     else if (value == SNAKE_CELL_PORTAL_A)
-        draw_cell(cell_x, cell_y, SNAKE_COLOR_PORTAL_A);
+    {
+        draw_cell_background(cell_x, cell_y);
+        pt_draw_snake_portal(GRID_X0 + cell_x * CELL_SIZE, GRID_Y0 + cell_y * CELL_SIZE, CELL_SIZE, 0);
+    }
     else if (value == SNAKE_CELL_PORTAL_B)
-        draw_cell(cell_x, cell_y, SNAKE_COLOR_PORTAL_B);
+    {
+        draw_cell_background(cell_x, cell_y);
+        pt_draw_snake_portal(GRID_X0 + cell_x * CELL_SIZE, GRID_Y0 + cell_y * CELL_SIZE, CELL_SIZE, 1);
+    }
     else
-        draw_cell(cell_x, cell_y, COL_BLACK);
+    {
+        draw_cell_background(cell_x, cell_y);
+    }
 }
 
 static void draw_static_cell_if_visible(int cell_x, int cell_y)
@@ -576,32 +607,19 @@ static void draw_static_arena_full(void)
     {
         for (x = 0; x < GRID_W; x++)
         {
-            if (arena_grid[grid_index(x, y)] != SNAKE_CELL_EMPTY)
-                draw_static_cell(x, y);
+            draw_static_cell(x, y);
         }
     }
 }
 
 static void draw_border(void)
 {
-    int x = GRID_X0 - 2;
-    int y = GRID_Y0 - 2;
-    int w = (GRID_W * CELL_SIZE) + 4;
-    int h = (GRID_H * CELL_SIZE) + 4;
-
-    vga_draw_rectangle(x, y, w, 2, COL_CYAN);
-    vga_draw_rectangle(x, y + h - 2, w, 2, COL_CYAN);
-    vga_draw_rectangle(x, y, 2, h, COL_CYAN);
-    vga_draw_rectangle(x + w - 2, y, 2, h, COL_CYAN);
+    pt_draw_snake_frame(GRID_X0, GRID_Y0, GRID_W, GRID_H, CELL_SIZE);
 }
 
 static void snake_draw_rx_indicator(int active)
 {
-    int color = active ? RX_ACTIVE_COLOR : RX_IDLE_COLOR;
-
-    vga_draw_rectangle(12, 10, 42, 14, COL_BLACK);
-    vga_draw_circle(18, 17, 4, color);
-    vga_print_software_text(26, 12, active ? "RX" : "ID", active ? RX_ACTIVE_COLOR : RX_IDLE_COLOR);
+    pt_draw_rx_badge(10, 8, active, active ? "RX" : "ID");
 }
 
 static int snake_update_rx_status(void)
@@ -636,21 +654,21 @@ static void draw_score(void)
     char score_text[32];
 
     /* Clear only score area, not the whole screen. */
-    vga_draw_rectangle(200, 10, 112, 12, COL_BLACK);
+    vga_draw_rectangle(210, 7, 104, 18, PT_WOOD_DARK);
 
     sprintf(score_text, "SCORE %d", score);
-    vga_print_software_text(204, 12, score_text, COL_YELLOW);
+    pt_print_shadow(218, 10, score_text, PT_GOLD);
 }
 
 static void draw_hud(void)
 {
-    vga_print_software_text(68, 12, "RETRO SNAKE", COL_GREEN);
+    pt_draw_snake_hud_panel(score);
     snake_rx_indicator_state = -1;
     snake_draw_rx_indicator(0);
     draw_score();
 
-    vga_print_software_text(32, 224, "TILT TO MOVE", COL_CYAN);
-    vga_print_software_text(184, 224, "SW9 MENU", COL_RED);
+    pt_print_shadow(34, 224, "TILT TO MOVE", PT_CREAM);
+    pt_print_shadow(196, 224, "SW9 MENU", PT_RED);
 }
 
 static void draw_snake_full(void)
@@ -660,15 +678,15 @@ static void draw_snake_full(void)
     for (i = 0; i < snake_len; i++)
     {
         if (i == 0)
-            draw_cell(snake[i].x, snake[i].y, SNAKE_COLOR_HEAD);
+            draw_snake_head_cell(snake[i].x, snake[i].y);
         else
-            draw_cell(snake[i].x, snake[i].y, SNAKE_COLOR_BODY);
+            draw_snake_body_cell(snake[i].x, snake[i].y);
     }
 }
 
 static void draw_game_screen_full_once(void)
 {
-    vga_fill_background(COL_BLACK);
+    pt_draw_snake_background(GRID_X0, GRID_Y0, GRID_W, GRID_H, CELL_SIZE);
     draw_hud();
     draw_border();
     draw_static_arena_full();
@@ -692,10 +710,10 @@ static void draw_game_screen_incremental(void)
     }
 
     /* Old head becomes body. */
-    draw_cell(old_head.x, old_head.y, SNAKE_COLOR_BODY);
+    draw_snake_body_cell(old_head.x, old_head.y);
 
     /* New head. */
-    draw_cell(snake[0].x, snake[0].y, SNAKE_COLOR_HEAD);
+    draw_snake_head_cell(snake[0].x, snake[0].y);
 
     if (ate_food_last_step)
     {
@@ -712,22 +730,7 @@ static void draw_game_screen_incremental(void)
 
 static void draw_lose_screen(void)
 {
-    char score_text[32];
-
-    vga_fill_background(COL_BLACK);
-
-    vga_draw_rectangle(0, 0, 320, 4, COL_RED);
-    vga_draw_rectangle(0, 236, 320, 4, COL_RED);
-    vga_draw_rectangle(0, 0, 4, 240, COL_RED);
-    vga_draw_rectangle(316, 0, 4, 240, COL_RED);
-
-    vga_print_software_text(96, 58, "YOU LOSE", COL_RED);
-
-    sprintf(score_text, "FINAL SCORE %d", score);
-    vga_print_software_text(76, 92, score_text, COL_YELLOW);
-
-    vga_print_software_text(52, 142, "KEY1 RETRY", COL_GREEN);
-    vga_print_software_text(54, 166, "SW9 BACK TO MENU", COL_CYAN);
+    pt_draw_snake_lose_screen(score);
 }
 
 static void clear_all_static_arena(void)

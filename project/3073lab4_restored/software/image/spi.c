@@ -133,8 +133,10 @@ static void sdram_store_text_from_packet(uint32_t text_src_offset, uint16_t text
         char c = (char)sdram_read_packet_byte(text_src_offset + i);
 
         /*
-           Store display-safe text, but preserve real row boundaries.
-           Debug VGA and debug decoder both need '\n' to survive SDRAM.
+           Store display-safe text while preserving instruction boundaries.
+           Arduino may send real '\n' between reconstructed DEBUG
+           instructions, and vga/debug.c uses those newlines to start a new
+           VGA text line.
         */
         if (c == '\r') {
             c = '\n';
@@ -298,18 +300,7 @@ static int store_text_and_metadata_from_packet(uint32_t packet_len)
     }
 
     if (header[0] != SPI_PACKET_MAGIC0 || header[1] != SPI_PACKET_MAGIC1) {
-        static uint32_t bad_magic_count = 0;
-        bad_magic_count++;
-
-        /* Common DMA boundary race: length is valid but ESP has not presented
-           the packet transaction yet, so the first read is all zeros. This is
-           not a real packet-content error, so keep it quiet and let the retry
-           loop read the same ESP packet again. */
-        if (!((header[0] == 0) && (header[1] == 0) && (header[2] == 0) && (header[3] == 0))) {
-            if ((bad_magic_count % 20u) == 1u)
-                printf("SPI warning: bad packet magic %02X %02X, retrying\n", header[0], header[1]);
-        }
-
+        printf("SPI error: bad packet magic\n");
         sdram_write_status(STATUS_LAST_ERROR, 3);
         return 0;
     }
@@ -423,9 +414,6 @@ static int store_text_and_metadata_from_packet(uint32_t packet_len)
    gap so wall/coordinate packets are not randomly dropped.
 */
 #define SPI_ESP_QUEUE_DELAY_US      25000
-#define SPI_PACKET_QUEUE_DELAY_US   120000
-#define SPI_PACKET_MAGIC_RETRY_COUNT 8
-#define SPI_PACKET_MAGIC_RETRY_DELAY_US 45000
 
 static void spi_send_command4(uint8_t cmd)
 {
@@ -544,10 +532,8 @@ static void spi_read_packet_bytes(uint32_t packet_len)
     /* Phase 1: tell ESP we want the packet. */
     spi_send_command4(SPI_CMD_READ_PACKET);
 
-    /* Let ESP queue the packet reply before FPGA starts clocking bytes.
-       Packet DMA presentation is slower than the 8-byte length reply; too short
-       can produce a valid length followed by all-zero packet bytes. */
-    usleep(SPI_PACKET_QUEUE_DELAY_US);
+    /* Let ESP queue the packet reply before FPGA starts clocking bytes. */
+    usleep(SPI_ESP_QUEUE_DELAY_US);
 
     /* Phase 2: clock packet bytes from ESP. */
     spi_begin_transaction();
@@ -646,27 +632,22 @@ void spi_request_text_from_esp(void)
         return;
     }
 
-    for (attempt = 1; attempt <= SPI_PACKET_MAGIC_RETRY_COUNT; attempt++) {
-        sdram_clear_packet_region(packet_len + SPI_PACKET_READ_EXTRA_BYTES);
-        spi_read_packet_bytes(packet_len);
+    sdram_clear_packet_region(packet_len + SPI_PACKET_READ_EXTRA_BYTES);
+    spi_read_packet_bytes(packet_len);
 
-        if (store_text_and_metadata_from_packet(packet_len)) {
-            latest_packet_length = packet_len;
-            return;
-        }
-
+    if (!store_text_and_metadata_from_packet(packet_len)) {
         latest_packet_length = 0;
 
         /*
            Do NOT send 0xA3 on bad packet magic/format during realtime queue
            streaming. If FPGA clocks before ESP has fully queued the next DMA
-           reply, the first bytes may be zero. Retry the same packet while
-           DATA_READY remains high instead of dropping the queued ESP packet.
+           reply, the first bytes may be zero. Auto-abort would drop valid
+           queued rows on the ESP side.
         */
-        usleep(SPI_PACKET_MAGIC_RETRY_DELAY_US);
+        return;
     }
 
-    printf("SPI warning: packet read failed after DMA-boundary retries; waiting for next ESP_DATA_READY window\n");
+    latest_packet_length = packet_len;
 }
 
 const char *spi_get_latest_text(void)

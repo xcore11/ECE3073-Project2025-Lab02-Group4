@@ -23,7 +23,7 @@ static uint32_t last_game_mode = 0xFFFFFFFFu;
 static uint32_t last_debug_msg_seq = 0;
 static char snake_action_history[DEBUG_CONTROL_MESSAGE_BYTES + 1];
 
-#define HEX_SCROLL_STEP_MS              100u   /* HEX scroll speed. Smaller = faster. 100 ms is 2x faster than old 200 ms. */
+#define HEX_SCROLL_STEP_MS              200u   /* HEX scroll speed. Smaller = faster. 100 ms is 2x faster than old 200 ms. */
 #define LED_TASK_STEP_MS                50u
 #define MENU_BLINK_TOGGLE_MS           500u   /* main-menu yellow blink toggles every 0.5 s */
 #define WIN_BLINK_TOGGLE_MS            5000u  /* battleship win blink toggles every 5 s */

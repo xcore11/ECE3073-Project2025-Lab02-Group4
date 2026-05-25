@@ -6258,7 +6258,7 @@ void HEX_task(void *pdata)
         }
 
         OSTimeDlyHMSM(0, 0, 0, HEX_SCROLL_STEP_MS);
- 41034b0:	01c01904 	movi	r7,100
+ 41034b0:	01c03204 	movi	r7,200
  41034b4:	000d883a 	mov	r6,zero
  41034b8:	000b883a 	mov	r5,zero
  41034bc:	0009883a 	mov	r4,zero

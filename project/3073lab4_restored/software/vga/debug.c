@@ -1,6 +1,7 @@
 #include "io.h"
 #include "system.h"
 #include "vga.h"
+#include "pixel_theme.h"
 #include "debug.h"
 
 #include <unistd.h>
@@ -62,23 +63,10 @@
 #define TEXT_START_Y        150
 #define TEXT_LINE_STEP      14
 #define DEBUG_MAX_LINES     6
-
-/*
-   Software font is 8 pixels wide per character.
-   Do not hard-limit debug rows to the old ESP/OCR row width.
-   Use the actual VGA text panel width so received sentences can occupy
-   almost the full 320-pixel box.
-
-   Capacity with the current values:
-       right edge = TEXT_REGION_X + TEXT_REGION_W = 320
-       start x    = TEXT_START_X = 10
-       margin     = 4
-       char width = 8
-       chars      = (320 - 10 - 4) / 8 = 38
-*/
 #define DEBUG_FONT_CHAR_W   8
 #define DEBUG_RIGHT_MARGIN  4
 #define DEBUG_LINE_CHARS    ((TEXT_REGION_X + TEXT_REGION_W - TEXT_START_X - DEBUG_RIGHT_MARGIN) / DEBUG_FONT_CHAR_W)
+#define DEBUG_WIRE_ROW_CHARS 8  /* Arduino DEBUG OCR row width; keep short packets aligned. */
 
 #define VGA_BLACK           0x00
 #define VGA_DARK_BG         0x24
@@ -103,6 +91,7 @@ static int debug_line_count = 0;
 static uint32_t last_text_seq = 0;
 static uint32_t last_image_seq = 0;
 static int current_image_valid = 0;
+static int debug_last_line_is_text_fragment = 0;
 
 static uint16_t read_u16_le(volatile uint8_t *p)
 {
@@ -205,12 +194,18 @@ static void draw_image_from_sdram(void)
 
 static void draw_image_frame(void)
 {
-    vga_draw_rectangle(0, 0, 320, 140, VGA_DARK_BG);
-    vga_draw_rectangle(IMAGE_BOX_X - 2,
-                       IMAGE_BOX_Y - 2,
-                       IMAGE_BOX_W + 4,
-                       IMAGE_BOX_H + 4,
-                       VGA_CYAN);
+    vga_draw_rectangle(0, 0, 320, 140, PT_WATER_DARK);
+    vga_draw_rectangle(0, 0, 320, 24, PT_WOOD_DARK);
+    vga_draw_rectangle(0, 24, 320, 2, PT_GOLD);
+    pt_print_shadow(8, 8, "DEBUG DOCK", PT_GOLD);
+
+    pt_draw_shadow_box(IMAGE_BOX_X - 5,
+                       IMAGE_BOX_Y - 5,
+                       IMAGE_BOX_W + 10,
+                       IMAGE_BOX_H + 10,
+                       PT_WOOD_DARK,
+                       PT_GOLD,
+                       PT_SHADOW);
     vga_draw_rectangle(IMAGE_BOX_X,
                        IMAGE_BOX_Y,
                        IMAGE_BOX_W,
@@ -245,8 +240,6 @@ static int debug_refresh_image_from_sdram(void)
     draw_image_from_sdram();
     return 1;
 }
-
-static int debug_last_line_is_text_fragment = 0;
 
 static void debug_clear_lines(void)
 {
@@ -329,6 +322,16 @@ static void debug_append_text_fragment(const char *fragment)
     }
 }
 
+static void debug_end_current_text_instruction(void)
+{
+    /*
+       A real newline from IMG/Arduino means the next OCR text belongs to a
+       new debug instruction.  This keeps instruction boundaries, while still
+       allowing short fragments from separate packets to fill the full VGA box.
+    */
+    debug_last_line_is_text_fragment = 0;
+}
+
 static void debug_draw_text_panel(void)
 {
     int i;
@@ -337,14 +340,15 @@ static void debug_draw_text_panel(void)
                        TEXT_REGION_Y,
                        TEXT_REGION_W,
                        TEXT_REGION_H,
-                       VGA_BLACK);
+                       PT_INK);
+    pt_draw_shadow_box(4, 142, 312, 94, PT_INK, PT_GOLD, PT_SHADOW);
 
     if (debug_line_count == 0)
     {
         vga_print_software_text(TEXT_START_X,
                                 TEXT_START_Y,
                                 "WAITING FOR REALTIME TEXT",
-                                VGA_WHITE);
+                                PT_CREAM);
         return;
     }
 
@@ -353,8 +357,25 @@ static void debug_draw_text_panel(void)
         vga_print_software_text(TEXT_START_X,
                                 TEXT_START_Y + i * TEXT_LINE_STEP,
                                 debug_lines[i],
-                                VGA_WHITE);
+                                PT_CREAM);
     }
+}
+
+static int debug_packet_contains_newline(uint16_t text_len)
+{
+    uint16_t i;
+
+    if (text_len > 512)
+        text_len = 512;
+
+    for (i = 0; i < text_len; i++)
+    {
+        char c = (char)(IORD_8DIRECT(TEXT_BUFFER_BASE, i) & 0xFF);
+        if (c == '\n' || c == '\r')
+            return 1;
+    }
+
+    return 0;
 }
 
 static void debug_append_text_from_sdram(uint16_t text_len)
@@ -362,6 +383,8 @@ static void debug_append_text_from_sdram(uint16_t text_len)
     char fragment[DEBUG_LINE_CHARS + 1];
     int fragment_pos = 0;
     uint16_t i;
+    uint16_t effective_len;
+    int has_newline;
 
     if (text_len == 0)
         return;
@@ -369,13 +392,37 @@ static void debug_append_text_from_sdram(uint16_t text_len)
     if (text_len > 512)
         text_len = 512;
 
+    has_newline = debug_packet_contains_newline(text_len);
+
+    /*
+       Format contract with Arduino DEBUG mode:
+       - Normal OCR debug rows are fixed-width slices, usually 8 columns.
+       - Spaces at the beginning/end of the slice are meaningful.
+       - VGA stitches these slices into the wider 38-character text box.
+
+       If an older/edge packet arrives as only 1..7 bytes, pad it back to the
+       fixed row width instead of letting the next packet shift left.  This is
+       what fixes the occasional beginning/end character mismatch.
+
+       Full debug passages that contain real newlines are not padded here;
+       those newlines intentionally mark instruction boundaries.
+    */
+    effective_len = text_len;
+    if (!has_newline && text_len > 0 && text_len < DEBUG_WIRE_ROW_CHARS)
+        effective_len = DEBUG_WIRE_ROW_CHARS;
+
     memset(fragment, 0, sizeof(fragment));
 
-    for (i = 0; i < text_len; i++)
+    for (i = 0; i < effective_len; i++)
     {
-        char c = (char)(IORD_8DIRECT(TEXT_BUFFER_BASE, i) & 0xFF);
+        char c;
 
-        if (c == '\0')
+        if (i < text_len)
+            c = (char)(IORD_8DIRECT(TEXT_BUFFER_BASE, i) & 0xFF);
+        else
+            c = ' ';
+
+        if (i < text_len && c == '\0')
             break;
 
         if (c == '\r' || c == '\n')
@@ -388,12 +435,7 @@ static void debug_append_text_from_sdram(uint16_t text_len)
                 memset(fragment, 0, sizeof(fragment));
             }
 
-            /*
-               Do not force a VGA newline here.
-               The ESP/Python debug stream may arrive as several short OCR rows
-               such as redledmo / duleblin / kingever.  Those fragments should
-               be stitched together and wrapped only when the VGA text box is full.
-            */
+            debug_end_current_text_instruction();
             continue;
         }
 
@@ -425,14 +467,14 @@ static void debug_append_text_from_sdram(uint16_t text_len)
 static void draw_static_screen(void)
 {
     draw_image_frame();
-    vga_draw_rectangle(0, 140, 320, 100, VGA_BLACK);
+    vga_draw_rectangle(0, 140, 320, 100, PT_INK);
 
     /* Keep the top-left text tiny so it does not cover the image preview. */
-    vga_print_software_text(4, 118, "K0 IMG  K1 BG  SW9 MENU", VGA_YELLOW);
+    pt_print_shadow(4, 118, "K0 IMG  K1 BG  SW9 MENU", PT_GOLD);
 
     if (!debug_refresh_image_from_sdram())
     {
-        vga_print_software_text(136, 60, "NO IMG", VGA_WHITE);
+        pt_print_shadow(136, 60, "NO IMG", PT_CREAM);
     }
 
     debug_draw_text_panel();

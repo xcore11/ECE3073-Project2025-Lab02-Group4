@@ -4,7 +4,7 @@
  * Machine generated for CPU 'image_proc' in SOPC Builder design 'NIOSII_WEEK3'
  * SOPC Builder design path: ../../NIOSII_WEEK3.sopcinfo
  *
- * Generated: Sun May 24 20:30:54 SGT 2026
+ * Generated: Mon May 25 14:31:55 SGT 2026
  */
 
 /*
