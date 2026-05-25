@@ -252,11 +252,6 @@ static void switch_isr(void *context)
     IOWR_ALTERA_AVALON_PIO_EDGE_CAP(PIO_SW_BASE, CONTROL_SW_MASK);
     switch_state = IORD_ALTERA_AVALON_PIO_DATA(PIO_SW_BASE) & CONTROL_SW_MASK;
 
-#ifdef PIO_GPIO_BASE
-	GPIO_state = GPIO_state | 0x1;
-	IOWR_ALTERA_AVALON_PIO_DATA(PIO_GPIO_BASE, GPIO_state);
-#endif
-
     OSSemPost(input_update_sem);
 }
 
@@ -268,7 +263,7 @@ void input_task(void *pdata)
     while (1) {
         OSSemPend(input_update_sem, 0, &err);
 		#ifdef PIO_GPIO_BASE
-        	GPIO_state = GPIO_state & ~0x3;
+        	GPIO_state = GPIO_state & ~0x2;
 			IOWR_ALTERA_AVALON_PIO_DATA(PIO_GPIO_BASE, GPIO_state);
 		#endif
         publish_control_event(CONTROL_EVENT_SWITCH, (uint32_t)switch_state, 0);
