@@ -244,10 +244,6 @@ static void notify_img_and_vga_processors(void)
 #ifdef CON_VGA_IRQ_TX_BASE
     IOWR_ALTERA_AVALON_PIO_DATA(CON_VGA_IRQ_TX_BASE, 0x0);
 #endif
-#ifdef PIO_GPIO_BASE
-    GPIO_state = GPIO_state | 0x3;
-    IOWR_ALTERA_AVALON_PIO_DATA(PIO_GPIO_BASE, GPIO_state);
-#endif
 }
 
 static void switch_isr(void *context)
@@ -255,6 +251,7 @@ static void switch_isr(void *context)
     (void)context;
     IOWR_ALTERA_AVALON_PIO_EDGE_CAP(PIO_SW_BASE, CONTROL_SW_MASK);
     switch_state = IORD_ALTERA_AVALON_PIO_DATA(PIO_SW_BASE) & CONTROL_SW_MASK;
+
     OSSemPost(input_update_sem);
 }
 
@@ -265,7 +262,10 @@ void input_task(void *pdata)
 
     while (1) {
         OSSemPend(input_update_sem, 0, &err);
-
+		#ifdef PIO_GPIO_BASE
+        	GPIO_state = GPIO_state & ~0x2;
+			IOWR_ALTERA_AVALON_PIO_DATA(PIO_GPIO_BASE, GPIO_state);
+		#endif
         publish_control_event(CONTROL_EVENT_SWITCH, (uint32_t)switch_state, 0);
 
         if ((~key_state) & CONTROL_KEY0_MASK) {
@@ -301,6 +301,12 @@ static void key_isr(void *context)
     (void)context;
     IOWR_ALTERA_AVALON_PIO_EDGE_CAP(PIO_PB_BASE, CONTROL_KEY_MASK);
     key_state = IORD_ALTERA_AVALON_PIO_DATA(PIO_PB_BASE) & CONTROL_KEY_MASK;
+
+#ifdef PIO_GPIO_BASE
+	GPIO_state = GPIO_state | 0x2;
+	IOWR_ALTERA_AVALON_PIO_DATA(PIO_GPIO_BASE, GPIO_state);
+#endif
+
     OSSemPost(input_update_sem);
 }
 
@@ -323,10 +329,6 @@ static void img_rx_isr(void *context)
 {
     (void)context;
     IOWR_ALTERA_AVALON_PIO_EDGE_CAP(CON_IMG_IRQ_RX_BASE, 0x1);
-#ifdef PIO_GPIO_BASE
-    IOWR_ALTERA_AVALON_PIO_DATA(PIO_GPIO_BASE, (GPIO_state & 0x2));
-    GPIO_state = GPIO_state & 0x2;
-#endif
     OSSemPost(leds_update_sem);
 }
 #endif
@@ -349,10 +351,6 @@ static void vga_rx_isr(void *context)
 {
     (void)context;
     IOWR_ALTERA_AVALON_PIO_EDGE_CAP(CON_VGA_IRQ_RX_BASE, 0x1);
-#ifdef PIO_GPIO_BASE
-    IOWR_ALTERA_AVALON_PIO_DATA(PIO_GPIO_BASE, (GPIO_state & 0x1));
-    GPIO_state = GPIO_state & 0x1;
-#endif
     OSSemPost(leds_update_sem);
 }
 #endif
@@ -528,6 +526,21 @@ static void build_scroll_message(char *dst, int dst_len, uint32_t game)
     }
 }
 
+#define UTIL_HISTORY_SIZE 10 // buffer size
+static int utilisation_history[UTIL_HISTORY_SIZE] = {0};
+static int utilisation_history_index = 0;
+static int current_system_load = 0;
+
+static void write_load_to_last_two(void)
+{
+    int load = current_system_load;
+    if (load < 0) load = 0;
+    if (load > 99) load = 99;
+
+    write_hex_pos(1, translator((char)('0' + (load / 10))));
+    write_hex_pos(0, translator((char)('0' + (load % 10))));
+}
+
 static void write_cpu_to_last_two(void)
 {
     extern INT8U OSCPUUsage;
@@ -577,6 +590,9 @@ void HEX_task(void *pdata)
     int scroll_offset = 0;
     uint32_t last_game_for_scroll = 0xFFFFFFFFu;
 
+    extern INT8U OSCPUUsage;
+	static int load_timer = 0;
+
     (void)pdata;
     last_msg[0] = '\0';
 
@@ -585,6 +601,30 @@ void HEX_task(void *pdata)
         int hex_master = (sw & CONTROL_SW1_HEX_MASTER) != 0;
         int scroll_master = (sw & CONTROL_SW2_SCROLL_MASTER) != 0;
         int cpu_master = (sw & CONTROL_SW3_CPU_MASTER) != 0;
+        int cpu = (int)OSCPUUsage;
+
+        load_timer++;
+		if (load_timer >= 10) {
+
+			if (cpu > 99) cpu = 99;
+			if (cpu < 0) cpu = 0;
+
+			// Add to rolling history buffer
+			utilisation_history[utilisation_history_index] = cpu;
+			utilisation_history_index++;
+			if (utilisation_history_index >= UTIL_HISTORY_SIZE) {
+				utilisation_history_index = 0; // Loop back around
+			}
+
+			// Average the buffer
+			int sum = 0;
+			for (int i = 0; i < UTIL_HISTORY_SIZE; i++) {
+				sum += utilisation_history[i];
+			}
+			current_system_load = sum / UTIL_HISTORY_SIZE;
+
+			load_timer = 0;
+		}
 
         game = shared_read32(FLAG_CURRENT_GAME);
         update_message_history(game);
@@ -613,27 +653,26 @@ void HEX_task(void *pdata)
         }
 
         if (scroll_master) {
-            if (cpu_master) {
-                write_scroll_window(msg, scroll_offset, 4);
-                write_cpu_to_last_two();
-            } else {
-                write_scroll_window(msg, scroll_offset, 6);
-            }
+			write_scroll_window(msg, scroll_offset, 4);
+			write_load_to_last_two();
             scroll_offset++;
-        } else {
+        }
+        else if (cpu_master){
             /* HEX master can be on while scrolling is off. Only CPU may use HEX1..0. */
             write_hex_pos(5, 0xFF);
             write_hex_pos(4, 0xFF);
             write_hex_pos(3, 0xFF);
             write_hex_pos(2, 0xFF);
-            if (cpu_master) {
-                write_cpu_to_last_two();
-            } else {
+            write_cpu_to_last_two();
+            }
+        else {
+        		write_hex_pos(5, 0xFF);
+				write_hex_pos(4, 0xFF);
+				write_hex_pos(3, 0xFF);
+				write_hex_pos(2, 0xFF);
                 write_hex_pos(1, 0xFF);
                 write_hex_pos(0, 0xFF);
             }
-        }
-
         OSTimeDlyHMSM(0, 0, 0, HEX_SCROLL_STEP_MS);
     }
 }
