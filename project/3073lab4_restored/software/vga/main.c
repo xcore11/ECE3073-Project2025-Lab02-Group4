@@ -47,6 +47,10 @@ extern int accel_read_z(alt_32 *z);
 #define FLAG_MENU_ENTER_EVENT          0x38
 #define FLAG_MENU_EXIT_EVENT           0x3C
 #define FLAG_PANEL_MODE_SEQ            0x8C
+#define FLAG_SFX_CLICK                 0xC5C
+#define FLAG_SFX_ENTER_SNAKE           0xC60
+#define FLAG_SFX_ENTER_DRAW            0xC64
+#define FLAG_SFX_ENTER_BATTLE          0xC68
 
 #define FLAG_CONTROL_EVENT_SEQ          0x800
 #define FLAG_CONTROL_KEY_STATE          0x804
@@ -100,6 +104,11 @@ static uint32_t shared_read_u32(uint32_t offset)
     return IORD_32DIRECT(SHARED_FLAGS_BASE, offset);
 }
 
+static void trigger_sfx_flag(uint32_t offset)
+{
+    shared_write_u32(offset, shared_read_u32(offset) + 1);
+}
+
 static void shared_flags_init_for_vga(void)
 {
     shared_write_u32(FLAG_SYSTEM_MAGIC, 0x47414D45);
@@ -114,6 +123,10 @@ static void shared_flags_init_for_vga(void)
     shared_write_u32(FLAG_IMAGE_READY, 0);
     shared_write_u32(FLAG_TEXT_READY_SHARED, 0);
     shared_write_u32(FLAG_VGA_DISPLAY_DONE, 0);
+    shared_write_u32(FLAG_SFX_CLICK, 0);
+    shared_write_u32(FLAG_SFX_ENTER_SNAKE, 0);
+    shared_write_u32(FLAG_SFX_ENTER_DRAW, 0);
+    shared_write_u32(FLAG_SFX_ENTER_BATTLE, 0);
 }
 
 static void vga_irq_rx_isr(void* context)
@@ -172,6 +185,7 @@ static void update_menu_navigation(void)
         if (selected_menu_index >= MENU_ITEM_COUNT)
             selected_menu_index = 0;
 
+        trigger_sfx_flag(FLAG_SFX_CLICK);
         shared_write_u32(FLAG_CURRENT_MENU, (uint32_t)selected_menu_index);
         shared_write_u32(FLAG_VGA_DISPLAY_DONE, 0);
         menu_draw(selected_menu_index);
@@ -184,6 +198,7 @@ static void update_menu_navigation(void)
         if (selected_menu_index < 0)
             selected_menu_index = MENU_ITEM_COUNT - 1;
 
+        trigger_sfx_flag(FLAG_SFX_CLICK);
         shared_write_u32(FLAG_CURRENT_MENU, (uint32_t)selected_menu_index);
         shared_write_u32(FLAG_VGA_DISPLAY_DONE, 0);
         menu_draw(selected_menu_index);
@@ -213,6 +228,7 @@ static void enter_screen(int next_screen)
         shared_write_u32(FLAG_CURRENT_MENU, MENU_SELECT_NONE);
         shared_write_u32(FLAG_GAME_RUNNING, 1);
         shared_write_u32(FLAG_DEBUG_MODE, 0);
+        trigger_sfx_flag(FLAG_SFX_ENTER_BATTLE);
         ship_game_init();
     }
     else if (current_screen == SCREEN_SNAKE)
@@ -221,6 +237,7 @@ static void enter_screen(int next_screen)
         shared_write_u32(FLAG_CURRENT_MENU, MENU_SELECT_NONE);
         shared_write_u32(FLAG_GAME_RUNNING, 1);
         shared_write_u32(FLAG_DEBUG_MODE, 0);
+        trigger_sfx_flag(FLAG_SFX_ENTER_SNAKE);
         snake_init();
     }
     else if (current_screen == SCREEN_DRAW)
@@ -229,6 +246,7 @@ static void enter_screen(int next_screen)
         shared_write_u32(FLAG_CURRENT_MENU, MENU_SELECT_NONE);
         shared_write_u32(FLAG_GAME_RUNNING, 1);
         shared_write_u32(FLAG_DEBUG_MODE, 0);
+        trigger_sfx_flag(FLAG_SFX_ENTER_DRAW);
         draw_game_init();
     }
     else if (current_screen == SCREEN_DEBUG)
@@ -262,6 +280,11 @@ static void handle_irq_button_action(void)
 
         if ((vga_irq_switch_state & CONTROL_SW9_MASK) != 0 && current_screen != SCREEN_MENU)
         {
+            if ((current_screen == SCREEN_SNAKE && snake_is_lost()) ||
+                (current_screen == SCREEN_BATTLE && ship_game_fleet_popup_visible()))
+            {
+                trigger_sfx_flag(FLAG_SFX_CLICK);
+            }
             shared_write_u32(FLAG_MENU_EXIT_EVENT, shared_read_u32(FLAG_MENU_EXIT_EVENT) + 1);
             enter_screen(SCREEN_MENU);
             usleep(SCREEN_EXIT_DELAY_US);
@@ -303,6 +326,7 @@ static void handle_irq_button_action(void)
         {
             if (snake_is_lost())
             {
+                trigger_sfx_flag(FLAG_SFX_CLICK);
                 snake_handle_button();  /* retry, returns 0 */
             }
             else

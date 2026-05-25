@@ -146,8 +146,8 @@ String storedJpegBase64 = "";
 bool imageUpdatedAfterFourRows = false;
 
 /*
-   captureActive becomes true automatically after START321 calibration.
-   Instruction rows then freeze into realtime SPI packets.
+   captureActive becomes true when the FPGA session is started and a non-menu
+   panel is selected. Calibration text is no longer required.
 */
 volatile bool captureActive = false;
 
@@ -187,9 +187,9 @@ volatile uint32_t spiIgnoredCounter = 0;
    Panel mode from IMG/VGA
 
    IMG sends one of these SPI commands whenever VGA enters a panel:
-       0xD0 debug: old debug/text/image behavior, START321 calibration, 8 slots
-       0xD1 snake: new realtime protocol, X99Y99 calibration, 6 slots
-       0xD2 draw : new realtime protocol, X99Y99 calibration, 6 slots
+       0xD0 debug: raw OCR debug text, 8 chars per row
+       0xD1 snake: raw OCR realtime protocol, XddYdd rows
+       0xD2 draw : raw OCR realtime protocol, XddYdd rows
        0xD3 menu : scanning idle / no active panel
    ========================= */
 
@@ -199,7 +199,7 @@ volatile uint32_t spiIgnoredCounter = 0;
 #define ESP_PANEL_DEBUG  3
 #define ESP_PANEL_BATTLE 4
 
-volatile int currentPanelMode = ESP_PANEL_DEBUG;
+volatile int currentPanelMode = ESP_PANEL_MENU;
 
 bool isRealtimePanelMode()
 {
@@ -234,6 +234,22 @@ const char *panelModeName(int mode)
    when their y positions are close.
 */
 #define LINE_Y_THRESHOLD 6
+
+/*
+   Space inference inside one OCR row.
+
+   Grove AI only gives detected character boxes; it does not output a real
+   "space" character. When two neighbouring character boxes have a much larger
+   x gap than normal, insert one ASCII space into row.rawText.
+
+   Example:
+       h e x   3 0 7  ->  "hex 307"
+
+   Tune SPACE_GAP_MIN_PIXELS if your camera scale changes.
+*/
+#define ENABLE_OCR_SPACE_INFERENCE 1
+#define SPACE_GAP_MIN_PIXELS 34
+#define SPACE_GAP_RATIO_PERCENT 165
 
 /*
    Y-only tracker matching threshold.
@@ -330,9 +346,15 @@ const char *panelModeName(int mode)
 */
 #define SLOT_X_TOLERANCE_PIXELS 45
 
-#define DEBUG_FRAME_LINES 1
-#define DEBUG_ROW_TRACKERS 1
-#define DEBUG_CALIBRATION 1
+/*
+   Serial printing is slow on ESP32 and can make OCR/SPI timing worse.
+   Enable these only while debugging a specific issue.
+*/
+#define DEBUG_FRAME_LINES 0
+#define DEBUG_ROW_TRACKERS 0
+#define DEBUG_CALIBRATION 0
+#define DEBUG_INVOKE_FAILS 0
+#define DEBUG_REALTIME_SENDS 1
 
 /* =========================
    Data structures
@@ -398,6 +420,8 @@ struct RecentSentRow {
 void sortByY(struct CharBox arr[], int n);
 void sortByX(struct CharBox arr[], int start, int end);
 void sortDetectedRowsByY(struct DetectedRow arr[], int n);
+int estimateNormalXStepForRow(struct CharBox arr[], int start, int end);
+bool shouldInsertOcrSpaceBetweenBoxes(struct CharBox prevBox, struct CharBox currentBox, int normalStep);
 String buildSlottedTextFromRow(struct DetectedRow *row);
 bool tryUseRowAsCalibration(struct DetectedRow row);
 int extractDetectedRows(struct DetectedRow detectedRows[], int maxRowsOut);
@@ -447,9 +471,72 @@ bool isCoordProtocolRow(String n)
     return true;
 }
 
+String canonicalRealtimeRowText(const String &text)
+{
+    /*
+       Realtime raw OCR canonicalizer.
+
+       The ESP now trusts the raw left-to-right OCR row instead of snapping
+       characters into calibrated x-slots. This avoids dropped characters such as
+       green -> gren or x77y44 -> x7y44.
+
+       State/color words are accepted when they are obvious short OCR variants.
+       Coordinate repair is intentionally NOT guessed here; coordinates are
+       accepted only when raw OCR already has the full XddYdd format.
+    */
+    String n = normalizeRowForCompare(text);
+
+    if (n.length() == 0) {
+        return n;
+    }
+
+    if (currentPanelMode == ESP_PANEL_DRAW) {
+        if (n == "red" || n == "rd") return "red";
+
+        if (n == "green" || n == "grn" || n == "gren" ||
+            n == "gree" || n == "gre" || n == "geen") return "green";
+
+        if (n == "blue" || n == "blu" || n == "ble" || n == "bue") return "blue";
+
+        if (n == "cyan" || n == "cya" || n == "can") return "cyan";
+
+        if (n == "yellow" || n == "yell" || n == "yello" ||
+            n == "yelow" || n == "yelo") return "yellow";
+
+        if (n == "black" || n == "blk" || n == "blak" || n == "back") return "black";
+
+        if (n == "white" || n == "wht" || n == "whit" || n == "wite") return "white";
+
+        if (n == "purple" || n == "purpl" || n == "prple" ||
+            n == "pink" || n == "magenta" || n == "magent") return "purple";
+
+        if (n == "clear" || n == "reset" || n == "clr" || n == "clearall") return "clear";
+        if (n == "erase" || n == "empty") return "erase";
+    }
+
+    if (currentPanelMode == ESP_PANEL_SNAKE) {
+        if (n == "wall" || n == "walls") return "wall";
+        if (n == "apple" || n == "apples") return "apple";
+        if (n == "porta") return "porta";
+        if (n == "portb") return "portb";
+        if (n == "clear" || n == "reset" || n == "clr" || n == "clearall" ||
+            n == "clrwal" || n == "nowall") return "clear";
+        if (n == "erase" || n == "empty") return "erase";
+    }
+
+    if (currentPanelMode == ESP_PANEL_BATTLE) {
+        if (n == "ship" || n == "ships") return "ship";
+        if (n == "clear" || n == "reset" || n == "clr" || n == "clearall") return "clear";
+        if (n == "erase" || n == "empty" || n == "water") return "erase";
+        if (n == "done") return "done";
+    }
+
+    return n;
+}
+
 bool isRealtimeProtocolRowText(const String &text)
 {
-    String n = normalizeRowForCompare(text);
+    String n = canonicalRealtimeRowText(text);
 
     if (n.length() == 0) {
         return false;
@@ -464,29 +551,21 @@ bool isRealtimeProtocolRowText(const String &text)
     }
 
     if (currentPanelMode == ESP_PANEL_SNAKE) {
-        return (n == "wall" || n == "walls" ||
-                n == "apple" || n == "apples" ||
+        return (n == "wall" || n == "apple" ||
                 n == "porta" || n == "portb" ||
-                n == "clear" || n == "reset" ||
-                n == "clr" || n == "clearall" ||
-                n == "clrwal" || n == "nowall" ||
-                n == "erase" || n == "empty");
+                n == "clear" || n == "erase");
     }
 
     if (currentPanelMode == ESP_PANEL_DRAW) {
         return (n == "red" || n == "green" || n == "blue" ||
                 n == "cyan" || n == "yellow" || n == "black" ||
-                n == "white" || n == "purple" || n == "pink" ||
-                n == "blk" || n == "blu" || n == "grn" ||
-                n == "wht" || n == "clear" || n == "reset" ||
-                n == "erase" || n == "empty");
+                n == "white" || n == "purple" ||
+                n == "clear" || n == "erase");
     }
 
     if (currentPanelMode == ESP_PANEL_BATTLE) {
-        return (n == "ship" || n == "ships" ||
-                n == "clear" || n == "reset" || n == "clr" || n == "clearall" ||
-                n == "erase" || n == "empty" || n == "water" ||
-                n == "done");
+        return (n == "ship" || n == "clear" ||
+                n == "erase" || n == "done");
     }
 
     return false;
@@ -495,7 +574,7 @@ bool isRealtimeProtocolRowText(const String &text)
 
 bool isRealtimeStateCommandRowText(const String &text)
 {
-    String n = normalizeRowForCompare(text);
+    String n = canonicalRealtimeRowText(text);
 
     if (n.length() == 0) {
         return false;
@@ -510,29 +589,21 @@ bool isRealtimeStateCommandRowText(const String &text)
     }
 
     if (currentPanelMode == ESP_PANEL_SNAKE) {
-        return (n == "wall" || n == "walls" ||
-                n == "apple" || n == "apples" ||
+        return (n == "wall" || n == "apple" ||
                 n == "porta" || n == "portb" ||
-                n == "clear" || n == "reset" ||
-                n == "clr" || n == "clearall" ||
-                n == "clrwal" || n == "nowall" ||
-                n == "erase" || n == "empty");
+                n == "clear" || n == "erase");
     }
 
     if (currentPanelMode == ESP_PANEL_DRAW) {
         return (n == "red" || n == "green" || n == "blue" ||
                 n == "cyan" || n == "yellow" || n == "black" ||
-                n == "white" || n == "purple" || n == "pink" ||
-                n == "blk" || n == "blu" || n == "grn" ||
-                n == "wht" || n == "clear" || n == "reset" ||
-                n == "erase" || n == "empty");
+                n == "white" || n == "purple" ||
+                n == "clear" || n == "erase");
     }
 
     if (currentPanelMode == ESP_PANEL_BATTLE) {
-        return (n == "ship" || n == "ships" ||
-                n == "clear" || n == "reset" || n == "clr" || n == "clearall" ||
-                n == "erase" || n == "empty" || n == "water" ||
-                n == "done");
+        return (n == "ship" || n == "clear" ||
+                n == "erase" || n == "done");
     }
 
     return false;
@@ -541,13 +612,13 @@ bool isRealtimeStateCommandRowText(const String &text)
 
 bool isDrawHardCommandText(const String &text)
 {
-    String n = normalizeRowForCompare(text);
-    return (n == "clear" || n == "reset" || n == "clr" || n == "clearall");
+    String n = canonicalRealtimeRowText(text);
+    return (n == "clear");
 }
 
 bool isDrawStateText(const String &text)
 {
-    String n = normalizeRowForCompare(text);
+    String n = canonicalRealtimeRowText(text);
 
     if (n.length() == 0 || isCoordProtocolRow(n)) {
         return false;
@@ -737,13 +808,20 @@ void appendDrawCoordToMicroBatch(const String &coordText, int rowY)
 void sendRealtimeRowText(const String &text, int rowY, const char *reason)
 {
     String finalRowText = cleanSlottedText(text);
+    String canonicalText = canonicalRealtimeRowText(finalRowText);
 
-    if (!isRealtimeProtocolRowText(finalRowText)) {
+    if (!isRealtimeProtocolRowText(canonicalText)) {
         return;
     }
 
+    if (isRealtimeStateCommandRowText(canonicalText)) {
+        finalRowText = canonicalText;
+    } else if (isCoordProtocolRow(canonicalText)) {
+        finalRowText = canonicalText;
+    }
+
     if (isMicroBatchPanelMode()) {
-        String n = normalizeRowForCompare(finalRowText);
+        String n = canonicalRealtimeRowText(finalRowText);
 
         if (isCoordProtocolRow(n)) {
             appendDrawCoordToMicroBatch(n, rowY);
@@ -1014,7 +1092,7 @@ void resetAllMemory()
         calibratedX[i] = 0;
     }
 
-    calibrationReady = false;
+    calibrationReady = true;
 
     frozenPassageRowCount = 0;
     consecutiveInvokeFails = 0;
@@ -1039,8 +1117,7 @@ void resetAllMemory()
     Serial.println(panelModeName(currentPanelMode));
     Serial.print("Active slots: ");
     Serial.println(activeSlotCount());
-    Serial.print("Expected calibration line: ");
-    Serial.println(buildExpectedCalibrationLine());
+    Serial.println("Calibration text disabled: raw OCR rows are accepted directly.");
     Serial.println("----------------");
 }
 
@@ -1085,6 +1162,81 @@ void sortDetectedRowsByY(struct DetectedRow arr[], int n)
             }
         }
     }
+}
+
+int estimateNormalXStepForRow(struct CharBox arr[], int start, int end)
+{
+    /*
+       Estimate the normal character-to-character x step for this row.
+       The row is already sorted by x before this is called.
+
+       We use the median adjacent x distance so one large word-space gap does
+       not distort the normal character spacing.
+    */
+    int gapCount = end - start - 1;
+
+    if (gapCount <= 0) {
+        return 0;
+    }
+
+    int gaps[MAX_CHARS_PER_LINE];
+
+    if (gapCount > MAX_CHARS_PER_LINE) {
+        gapCount = MAX_CHARS_PER_LINE;
+    }
+
+    for (int i = 0; i < gapCount; i++) {
+        int leftIndex = start + i;
+        int rightIndex = leftIndex + 1;
+        int gap = abs(arr[rightIndex].x - arr[leftIndex].x);
+
+        gaps[i] = gap;
+    }
+
+    for (int i = 0; i < gapCount - 1; i++) {
+        for (int j = i + 1; j < gapCount; j++) {
+            if (gaps[j] < gaps[i]) {
+                int temp = gaps[i];
+                gaps[i] = gaps[j];
+                gaps[j] = temp;
+            }
+        }
+    }
+
+    return gaps[gapCount / 2];
+}
+
+bool shouldInsertOcrSpaceBetweenBoxes(struct CharBox prevBox, struct CharBox currentBox, int normalStep)
+{
+#if ENABLE_OCR_SPACE_INFERENCE
+    int xStep = currentBox.x - prevBox.x;
+
+    if (xStep < 0) {
+        xStep = -xStep;
+    }
+
+    int threshold = SPACE_GAP_MIN_PIXELS;
+
+    /*
+       If the row has enough characters to estimate normal spacing, require the
+       gap to be larger than both the fixed minimum and the row's normal spacing.
+       This keeps normal letters from being split accidentally.
+    */
+    if (normalStep > 0) {
+        int dynamicThreshold = (normalStep * SPACE_GAP_RATIO_PERCENT) / 100;
+
+        if (dynamicThreshold > threshold) {
+            threshold = dynamicThreshold;
+        }
+    }
+
+    return (xStep >= threshold);
+#else
+    (void)prevBox;
+    (void)currentBox;
+    (void)normalStep;
+    return false;
+#endif
 }
 
 /* =========================
@@ -1209,11 +1361,8 @@ bool tryUseRowAsCalibration(struct DetectedRow row)
    2. Sort by y.
    3. Group characters with similar y into one row.
    4. Sort each row by x.
-   5. Before calibration:
-        row text = sorted character string.
-   6. After calibration:
-        row text = characters placed into calibrated x slots.
-        Missing slots become spaces.
+   5. Row text = sorted raw OCR characters, left to right.
+      Calibration/slot snapping is disabled.
    ========================= */
 
 int extractDetectedRows(struct DetectedRow detectedRows[], int maxRowsOut)
@@ -1293,6 +1442,8 @@ int extractDetectedRows(struct DetectedRow detectedRows[], int maxRowsOut)
             row.xs[i] = 0;
         }
 
+        int normalXStep = estimateNormalXStepForRow(boxes, rowStart, rowEnd);
+
         for (int i = rowStart; i < rowEnd; i++) {
             if (boxes[i].x < row.minX) {
                 row.minX = boxes[i].x;
@@ -1303,6 +1454,24 @@ int extractDetectedRows(struct DetectedRow detectedRows[], int maxRowsOut)
             }
 
             if (row.charCount < activeSlotCount()) {
+                /*
+                   Insert a real space when the OCR boxes show a large visual
+                   gap inside the same row. This is what lets one row become:
+                       hex 307
+                   instead of:
+                       hex307
+
+                   The space is only added to rawText/text. row.chars[] keeps
+                   the actual character boxes only, because calibration/slot
+                   data should not treat the inferred space as an OCR box.
+                */
+                if (row.charCount > 0 &&
+                    shouldInsertOcrSpaceBetweenBoxes(boxes[i - 1], boxes[i], normalXStep)) {
+                    if (row.rawText.length() == 0 || row.rawText[row.rawText.length() - 1] != ' ') {
+                        row.rawText += ' ';
+                    }
+                }
+
                 row.chars[row.charCount] = boxes[i].c;
                 row.xs[row.charCount] = boxes[i].x;
                 row.charCount++;
@@ -1312,11 +1481,13 @@ int extractDetectedRows(struct DetectedRow detectedRows[], int maxRowsOut)
 
         row.rawText = cleanText(row.rawText);
 
-        if (calibrationReady) {
-            row.text = buildSlottedTextFromRow(&row);
-        } else {
-            row.text = row.rawText;
-        }
+        /*
+           RAW-OCR-ONLY MODE:
+           Do not snap row text into calibrated x-slots.
+           The Grove AI raw OCR order is trusted as the real row text.
+           Calibration text is not required.
+        */
+        row.text = cleanSlottedText(row.rawText);
 
         if (countNonSpaceChars(row.text) >= MIN_CANDIDATE_CHARS) {
             detectedRows[detectedCount] = row;
@@ -1339,7 +1510,7 @@ int extractDetectedRows(struct DetectedRow detectedRows[], int maxRowsOut)
         Serial.print(i + 1);
         Serial.print(": raw=");
         Serial.print(detectedRows[i].rawText);
-        Serial.print(" slot=");
+        Serial.print(" text=");
         Serial.print(detectedRows[i].text);
         Serial.print(" y=");
         Serial.print(detectedRows[i].y);
@@ -1828,7 +1999,9 @@ void resetDuplicateGuardsAfterInvokeFails()
         rowTrackers[i].frozenText = "";
     }
 
+#if DEBUG_INVOKE_FAILS
     Serial.println("[DUP RESET] AI invoke failed/end of pass -> exact duplicate memory cleared");
+#endif
 }
 
 bool isUsefulSnakeRowText(const String &text)
@@ -2079,6 +2252,34 @@ void flushPendingFrozenRows()
 }
 
 
+String chooseDetectedRowTextForCurrentPanel(struct DetectedRow detected)
+{
+    /*
+       RAW-OCR-ONLY MODE:
+       Use the raw left-to-right OCR row directly. The old slotted/snap-to-x
+       version could drop characters such as:
+         raw=green  -> slotted=gren
+         raw=x77y44 -> slotted=x7y44
+       That path is now bypassed completely for instruction rows.
+    */
+    String rawText = cleanSlottedText(detected.rawText);
+
+    if (!isRealtimePanelMode()) {
+        return rawText;
+    }
+
+    String rawCanonical = canonicalRealtimeRowText(rawText);
+
+    if (rawCanonical != normalizeRowForCompare(rawText)) {
+        Serial.print("[REALTIME ROW] canonicalized raw text [");
+        Serial.print(rawText);
+        Serial.print("] -> [");
+        Serial.print(rawCanonical);
+        Serial.println("]");
+    }
+
+    return rawCanonical;
+}
 
 void freezeRow(int trackerIndex)
 {
@@ -2142,22 +2343,22 @@ void freezeRow(int trackerIndex)
 
 void updateRowTrackerWithDetectedRow(struct DetectedRow detected)
 {
+    String text = chooseDetectedRowTextForCurrentPanel(detected);
+    text = cleanSlottedText(text);
+
     /*
-       Before calibration is ready, only look for the START... row.
-       Do not freeze real instruction rows yet because their x slots
-       are not reliable.
+       Calibration rows are no longer required. If an old Python screen still
+       shows START321 or X99Y99, ignore it instead of treating it as a command.
     */
-    if (!calibrationReady) {
-        tryUseRowAsCalibration(detected);
+    if (isCalibrationLikeText(text)) {
+#if DEBUG_ROW_TRACKERS
+        Serial.print("[OCR] old calibration row ignored text=[");
+        Serial.print(text);
+        Serial.println("]");
+#endif
         return;
     }
 
-    String text = cleanSlottedText(detected.text);
-
-    /*
-       Calibration is allowed before capture, but instruction storage starts
-       only after START321 calibration enables realtime capture.
-    */
     if (!captureActive) {
         return;
     }
@@ -2166,22 +2367,53 @@ void updateRowTrackerWithDetectedRow(struct DetectedRow detected)
         return;
     }
 
-    if (isRealtimePanelMode() && isRealtimeStateCommandRowText(text)) {
-        unsigned long nowMs = millis();
+    if (isRealtimePanelMode()) {
+        String n = canonicalRealtimeRowText(text);
 
-        if (lastRealtimeStateRowText == text &&
-            (nowMs - lastRealtimeStateRowMs) < REALTIME_STATE_REPEAT_GUARD_MS) {
-#if DEBUG_ROW_TRACKERS
-            Serial.print("[REALTIME ROW] duplicate short state ignored text=[");
-            Serial.print(text);
-            Serial.println("]");
-#endif
+        if (!isRealtimeProtocolRowText(n)) {
             return;
         }
 
-        lastRealtimeStateRowText = text;
-        lastRealtimeStateRowMs = nowMs;
-        sendRealtimeRowText(text, detected.y, "immediate-state");
+        if (isRealtimeStateCommandRowText(n)) {
+            unsigned long nowMs = millis();
+
+            if (lastRealtimeStateRowText == n &&
+                (nowMs - lastRealtimeStateRowMs) < REALTIME_STATE_REPEAT_GUARD_MS) {
+#if DEBUG_ROW_TRACKERS
+                Serial.print("[REALTIME ROW] duplicate state ignored text=[");
+                Serial.print(n);
+                Serial.println("]");
+#endif
+                return;
+            }
+
+            lastRealtimeStateRowText = n;
+            lastRealtimeStateRowMs = nowMs;
+            sendRealtimeRowText(n, detected.y, "immediate-state");
+            return;
+        }
+
+        if (isCoordProtocolRow(n)) {
+            /*
+               No row-order/freezing for realtime panels.
+               Send raw OCR coordinates directly, but block the exact same
+               coordinate while it remains visible in the current scroll pass.
+               The duplicate memory is cleared after invoke-fail/end-of-pass.
+            */
+            if (recentSentAlreadyHasExactRow(n)) {
+#if DEBUG_ROW_TRACKERS
+                Serial.print("[REALTIME ROW] duplicate coord ignored text=[");
+                Serial.print(n);
+                Serial.println("]");
+#endif
+                return;
+            }
+
+            sendRealtimeRowText(n, detected.y, "immediate-coord");
+            rememberRecentSentRow(n, detected.y);
+            return;
+        }
+
         return;
     }
 
@@ -2208,16 +2440,6 @@ void updateRowTrackerWithDetectedRow(struct DetectedRow detected)
         return;
     }
 
-    /*
-       Stability rule:
-       - full max-character row: freeze after ROW_FREEZE_CONFIRM_COUNT
-       - short row: freeze after SHORT_ROW_FREEZE_CONFIRM_COUNT
-
-       Because spaces are now accepted, use raw String length after trimming.
-       Example:
-         "red led" length 7
-         "display hex" length 11
-    */
     if (rowTrackers[trackerIndex].lastText == text) {
         rowTrackers[trackerIndex].stableCount++;
     } else {
@@ -2235,10 +2457,7 @@ void updateRowTrackerWithDetectedRow(struct DetectedRow detected)
     Serial.print("] stable=");
     Serial.print(rowTrackers[trackerIndex].stableCount);
 
-    if (isRealtimePanelMode()) {
-        Serial.print("/");
-        Serial.println(REALTIME_COORD_FREEZE_CONFIRM_COUNT);
-    } else if (text.length() >= activeSlotCount()) {
+    if (text.length() >= activeSlotCount()) {
         Serial.print("/");
         Serial.println(ROW_FREEZE_CONFIRM_COUNT);
     } else {
@@ -2246,13 +2465,6 @@ void updateRowTrackerWithDetectedRow(struct DetectedRow detected)
         Serial.println(SHORT_ROW_FREEZE_CONFIRM_COUNT);
     }
 #endif
-
-    if (isRealtimePanelMode()) {
-        if (rowTrackers[trackerIndex].stableCount >= REALTIME_COORD_FREEZE_CONFIRM_COUNT) {
-            freezeRow(trackerIndex);
-        }
-        return;
-    }
 
     if (text.length() >= activeSlotCount() &&
         rowTrackers[trackerIndex].stableCount >= ROW_FREEZE_CONFIRM_COUNT) {
@@ -3216,7 +3428,7 @@ bool consumeSpiTriggerFlag()
 
 void startCaptureFromTrigger()
 {
-    Serial.println("[SPI] 0x5F accepted -> capture starts");
+    Serial.println("[SPI] capture starts");
 
     resetCaptureRowsKeepCalibration();
     captureActive = true;
@@ -3228,12 +3440,6 @@ void startCaptureFromTrigger()
 void handlePendingSpiTriggerInMainLoop()
 {
     if (!consumeSpiTriggerFlag()) {
-        return;
-    }
-
-    if (!calibrationReady) {
-        spiIgnoredCounter++;
-        Serial.println("[SPI] 0x5F ignored: START321 calibration not ready yet");
         return;
     }
 
@@ -3279,18 +3485,24 @@ void setPanelModeFromSpi(int mode)
 
     currentPanelMode = mode;
 
-    /* A panel switch means a different calibration/protocol. Clear old OCR
-       trackers and packets, then wait for that panel's calibration row. */
+    /*
+       A panel switch means a different OCR stream/protocol. Clear old trackers
+       and packets. No calibration row is required anymore.
+    */
     resetAllMemory();
 
     if (mode == ESP_PANEL_MENU) {
         captureActive = false;
-        calibrationReady = false;
-        Serial.println("[PANEL] menu mode: OCR rows ignored until DEBUG/SNAKE/DRAW mode");
+        calibrationReady = true;
+        Serial.println("[PANEL] menu mode: OCR rows ignored until DEBUG/SNAKE/DRAW/BATTLE mode");
     } else if (mode == ESP_PANEL_DEBUG) {
-        Serial.println("[PANEL] DEBUG mode: old START321 / 8-slot debug protocol");
+        captureActive = sessionStarted;
+        calibrationReady = true;
+        Serial.println("[PANEL] DEBUG mode: raw OCR debug rows with inferred spaces, no START321 needed");
     } else {
-        Serial.println("[PANEL] realtime mode: X99Y99 / 6-slot row protocol");
+        captureActive = sessionStarted;
+        calibrationReady = true;
+        Serial.println("[PANEL] realtime mode: raw OCR command/coord rows, no X99Y99 needed");
     }
 }
 
@@ -3309,7 +3521,7 @@ void startSessionFromFpgaButton(void)
     Serial.println("========== SESSION START ==========");
     Serial.println("[SESSION] 0x5F received from FPGA button interrupt");
     Serial.println("[SESSION] This command only starts the session. It is ignored afterwards.");
-    Serial.println("[SESSION] Clearing old packet/state. IMG will send panel mode next.");
+    Serial.println("[SESSION] Clearing old packet/state. OCR starts when a non-menu panel is active.");
     Serial.println("===================================");
 
     /* Drop any stale packet and force DATA_READY low before starting. */
@@ -3319,9 +3531,11 @@ void startSessionFromFpgaButton(void)
     latestGrayImageValid = false;
     memset(latestGrayImage, 0, sizeof(latestGrayImage));
 
-    /* Reset tracking/calibration, then allow loop() to run AI detection. */
+    /* Reset tracking, then allow loop() to run AI detection. */
     resetAllMemory();
     sessionStarted = true;
+    calibrationReady = true;
+    captureActive = (currentPanelMode != ESP_PANEL_MENU);
 }
 
 /* =========================
@@ -3521,7 +3735,7 @@ void setup()
 
     Serial.println("AI begin OK");
     Serial.println("[SESSION] Waiting for FPGA button session-start command 0x5F...");
-    Serial.println("[SESSION] Grove detection will stay idle until 0x5F is received.");
+    Serial.println("[SESSION] Grove detection will stay idle until 0x5F is received, then raw OCR is used directly.");
 
     /*
        ESP32-C3 has only core 0, so do NOT use xTaskCreatePinnedToCore(..., 1).
@@ -3621,13 +3835,17 @@ void loop()
     } else {
         consecutiveInvokeFails++;
 
+#if DEBUG_INVOKE_FAILS
         Serial.print("invoke failed count=");
         Serial.print(consecutiveInvokeFails);
         Serial.print("/");
         Serial.println(MAX_CONSECUTIVE_INVOKE_FAILS);
+#endif
 
         if (consecutiveInvokeFails >= MAX_CONSECUTIVE_INVOKE_FAILS) {
+#if DEBUG_INVOKE_FAILS
             Serial.println("[ROW ORDER] invoke-fail/end-of-pass -> force flush pending rows before duplicate reset");
+#endif
             rowOrderForceFlush = true;
             duplicateResetAfterPendingFlush = true;
             consecutiveInvokeFails = 0;

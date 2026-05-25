@@ -2,9 +2,9 @@
 <sch:Settings xmlns:sch="http://www.altera.com/embeddedsw/bsp/schema">
         <BspType>ucosii</BspType>
         <BspVersion>default</BspVersion>
-        <BspGeneratedTimeStamp>May 24, 2026 3:09:15 PM</BspGeneratedTimeStamp>
-        <BspGeneratedUnixTimeStamp>1779606555732</BspGeneratedUnixTimeStamp>
-        <BspGeneratedLocation>C:\Users\User\Documents\GitHub\ECE3073-Project2025-Lab02-Group4\project\3073lab4_restored\software\control_bsp</BspGeneratedLocation>
+        <BspGeneratedTimeStamp>May 24, 2026 8:40:52 PM</BspGeneratedTimeStamp>
+        <BspGeneratedUnixTimeStamp>1779626452063</BspGeneratedUnixTimeStamp>
+        <BspGeneratedLocation>C:\temp\ECE3073-Project2025-Lab02-Group4\project\3073lab4_restored\software\control_bsp</BspGeneratedLocation>
         <BspSettingsFile>settings.bsp</BspSettingsFile>
         <SopcDesignFile>..\..\NIOSII_WEEK3.sopcinfo</SopcDesignFile>
         <JdiFile>default</JdiFile>
@@ -1738,6 +1738,30 @@
                 <Enabled>false</Enabled>
                 <Group xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
         </Setting>
+        <LinkerRegion>
+                <regionName>new_sdram_controller_0</regionName>
+                <memoryName>new_sdram_controller_0</memoryName>
+                <offset>1048576</offset>
+                <size>1048576</size>
+                <baseAddress>0x4100000</baseAddress>
+                <addressRange>0x04100000 - 0x041FFFFF</addressRange>
+        </LinkerRegion>
+        <LinkerRegion>
+                <regionName>reset</regionName>
+                <memoryName>control_mem</memoryName>
+                <offset>0</offset>
+                <size>32</size>
+                <baseAddress>0x8004000</baseAddress>
+                <addressRange>0x08004000 - 0x0800401F</addressRange>
+        </LinkerRegion>
+        <LinkerRegion>
+                <regionName>control_mem</regionName>
+                <memoryName>control_mem</memoryName>
+                <offset>32</offset>
+                <size>16352</size>
+                <baseAddress>0x8004020</baseAddress>
+                <addressRange>0x08004020 - 0x08007FFF</addressRange>
+        </LinkerRegion>
         <MemoryMap>
                 <slaveDescriptor>new_sdram_controller_0</slaveDescriptor>
                 <addressRange>0x04000000 - 0x07FFFFFF</addressRange>
@@ -1746,121 +1770,121 @@
         </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>control_mem</slaveDescriptor>
-                <addressRange>0x08002000 - 0x08003FFF</addressRange>
-                <addressSpan>8192</addressSpan>
+                <addressRange>0x08004000 - 0x08007FFF</addressRange>
+                <addressSpan>16384</addressSpan>
                 <attributes>memory</attributes>
         </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>rtos_timer</slaveDescriptor>
-                <addressRange>0x08005020 - 0x0800503F</addressRange>
+                <addressRange>0x08009020 - 0x0800903F</addressRange>
                 <addressSpan>32</addressSpan>
                 <attributes>timer</attributes>
         </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>con_vga_IRQ_rx</slaveDescriptor>
-                <addressRange>0x08005140 - 0x0800514F</addressRange>
+                <addressRange>0x08009140 - 0x0800914F</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>con_vga_IRQ_tx</slaveDescriptor>
-                <addressRange>0x08005150 - 0x0800515F</addressRange>
+                <addressRange>0x08009150 - 0x0800915F</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>con_img_IRQ_rx</slaveDescriptor>
-                <addressRange>0x08005160 - 0x0800516F</addressRange>
+                <addressRange>0x08009160 - 0x0800916F</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>con_img_IRQ_tx</slaveDescriptor>
-                <addressRange>0x08005170 - 0x0800517F</addressRange>
+                <addressRange>0x08009170 - 0x0800917F</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>pio_speaker</slaveDescriptor>
-                <addressRange>0x08005180 - 0x0800518F</addressRange>
+                <addressRange>0x08009180 - 0x0800918F</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>pio_led_module</slaveDescriptor>
-                <addressRange>0x08005190 - 0x0800519F</addressRange>
+                <addressRange>0x08009190 - 0x0800919F</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>pio_hex5</slaveDescriptor>
-                <addressRange>0x080051A0 - 0x080051AF</addressRange>
+                <addressRange>0x080091A0 - 0x080091AF</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>pio_hex4</slaveDescriptor>
-                <addressRange>0x080051B0 - 0x080051BF</addressRange>
+                <addressRange>0x080091B0 - 0x080091BF</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>pio_hex3</slaveDescriptor>
-                <addressRange>0x080051C0 - 0x080051CF</addressRange>
+                <addressRange>0x080091C0 - 0x080091CF</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>pio_hex2</slaveDescriptor>
-                <addressRange>0x080051D0 - 0x080051DF</addressRange>
+                <addressRange>0x080091D0 - 0x080091DF</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>pio_hex1</slaveDescriptor>
-                <addressRange>0x080051E0 - 0x080051EF</addressRange>
+                <addressRange>0x080091E0 - 0x080091EF</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>pio_hex0</slaveDescriptor>
-                <addressRange>0x080051F0 - 0x080051FF</addressRange>
+                <addressRange>0x080091F0 - 0x080091FF</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>pio_gpio</slaveDescriptor>
-                <addressRange>0x08005200 - 0x0800520F</addressRange>
+                <addressRange>0x08009200 - 0x0800920F</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>pio_pb</slaveDescriptor>
-                <addressRange>0x08005210 - 0x0800521F</addressRange>
+                <addressRange>0x08009210 - 0x0800921F</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>pio_sw</slaveDescriptor>
-                <addressRange>0x08005220 - 0x0800522F</addressRange>
+                <addressRange>0x08009220 - 0x0800922F</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>pio_led</slaveDescriptor>
-                <addressRange>0x08005230 - 0x0800523F</addressRange>
+                <addressRange>0x08009230 - 0x0800923F</addressRange>
                 <addressSpan>16</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>mutex_0</slaveDescriptor>
-                <addressRange>0x08005248 - 0x0800524F</addressRange>
+                <addressRange>0x08009248 - 0x0800924F</addressRange>
                 <addressSpan>8</addressSpan>
                 <attributes/>
         </MemoryMap>
         <MemoryMap>
                 <slaveDescriptor>jtag_control</slaveDescriptor>
-                <addressRange>0x08005250 - 0x08005257</addressRange>
+                <addressRange>0x08009250 - 0x08009257</addressRange>
                 <addressSpan>8</addressSpan>
                 <attributes>printable</attributes>
         </MemoryMap>

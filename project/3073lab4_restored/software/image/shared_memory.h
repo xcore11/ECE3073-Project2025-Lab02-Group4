@@ -177,6 +177,46 @@
 #define CONTROL_KEY1_MASK               0x00000002u
 #define CONTROL_SW_MASK                 0x000003FFu
 
+
+/* =========================
+   DEBUG -> CONTROL mailbox
+   Effective address = DEBUG_CONTROL_BASE + offset.
+   This uses the previously-free 0x06000000 SDRAM region so it does not
+   collide with the normal VGA/IMG shared flags page at 0x05212000.
+   ========================= */
+
+#ifndef DEBUG_CONTROL_BASE
+#define DEBUG_CONTROL_BASE              0x06000000
+#endif
+
+#define FLAG_CONTROL_SPEAKER_OPTION     0x81C
+#define FLAG_CONTROL_LED_MODULE         0x820
+#define FLAG_CONTROL_LEDR               0x824
+#define FLAG_CONTROL_MESSAGE            0x828
+#define DEBUG_CONTROL_MESSAGE_BYTES     68
+
+#define DEBUG_CONTROL_CMD_NONE          0
+#define DEBUG_CONTROL_CMD_BATCH         100
+
+#define DEBUG_CONTROL_MASK_HEX_MESSAGE  0x00000001u
+#define DEBUG_CONTROL_MASK_LED_MODULE   0x00000002u
+#define DEBUG_CONTROL_MASK_LEDR         0x00000004u
+#define DEBUG_CONTROL_MASK_SPEAKER      0x00000008u
+
+#define DEBUG_OPTION_VALID              0x80000000u
+#define DEBUG_OPTION_BLINK              0x40000000u
+#define DEBUG_OPTION_SECONDS_SHIFT      16
+#define DEBUG_OPTION_SECONDS_MASK       0x00FF0000u
+
+#define DEBUG_LED_MODULE_RED            0x00000001u
+#define DEBUG_LED_MODULE_YELLOW         0x00000002u
+#define DEBUG_LED_MODULE_GREEN          0x00000004u
+
+#define DEBUG_LEDR_FROM_LEFT            0x00000100u
+
+#define DEBUG_SPEAKER_FREQ_MASK         0x0000FFFFu
+#define DEBUG_SPEAKER_HAS_DURATION      0x40000000u
+
 /* Debug image capture / draw-background handoff flags. */
 #define FLAG_DEBUG_IMAGE_CAPTURE_REQ    0x840
 #define FLAG_DEBUG_IMAGE_CAPTURE_ACK    0x844

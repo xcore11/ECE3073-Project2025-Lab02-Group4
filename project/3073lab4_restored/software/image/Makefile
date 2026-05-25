@@ -145,6 +145,7 @@ ELF := image.elf
 C_SRCS += spi.c
 C_SRCS += main.c
 C_SRCS += decoder.c
+C_SRCS += decoderdebug.c
 CXX_SRCS :=
 ASM_SRCS :=
 

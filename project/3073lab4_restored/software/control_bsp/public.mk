@@ -100,14 +100,14 @@ BSP_CRT0 := $(ALT_LIBRARY_ROOT_DIR)/obj/HAL/src/crt0.o
 
 # Name of BSP library as provided to linker using the "-msys-lib" flag or 
 # linker script GROUP command. 
-# setting BSP_SYS_LIB is hal_bsp
-BSP_SYS_LIB := hal_bsp
-ELF_PATCH_FLAG  += --thread_model hal
+# setting BSP_SYS_LIB is ucosii_bsp
+BSP_SYS_LIB := ucosii_bsp
+ELF_PATCH_FLAG  += --thread_model ucosii
 
 # Type identifier of the BSP library 
-# setting BSP_TYPE is hal
+# setting BSP_TYPE is ucosii
 ALT_CPPFLAGS += -D__hal__
-BSP_TYPE := hal
+BSP_TYPE := ucosii
 
 # CDX present. 
 # setting CDX is false
@@ -148,7 +148,7 @@ ELF_PATCH_FLAG  += --simulation_enabled false
 
 # Enable JTAG UART driver to recover when host is inactive causing buffer to 
 # full without returning error. Printf will not fail with this recovery. none 
-# setting altera_avalon_jtag_uart_driver.enable_jtag_uart_ignore_fifo_full_error is true
+# setting altera_avalon_jtag_uart_driver.enable_jtag_uart_ignore_fifo_full_error is false
 
 # Small-footprint (polled mode) driver none 
 # setting altera_avalon_jtag_uart_driver.enable_small_driver is false
@@ -347,19 +347,14 @@ ELF_PATCH_FLAG  += --stdout_dev jtag_control
 #                 SOFTWARE COMPONENT & DRIVER INCLUDE PATHS
 #------------------------------------------------------------------------------
 
+ALT_INCLUDE_DIRS += $(ALT_LIBRARY_ROOT_DIR)/UCOSII/inc
 ALT_INCLUDE_DIRS += $(ALT_LIBRARY_ROOT_DIR)/HAL/inc
 
 #------------------------------------------------------------------------------
 #        SOFTWARE COMPONENT & DRIVER PRODUCED ALT_CPPFLAGS ADDITIONS
 #------------------------------------------------------------------------------
 
-ALT_CPPFLAGS += -DALT_SINGLE_THREADED
-
-#------------------------------------------------------------------------------
-#        SOFTWARE COMPONENT & DRIVER SETTING-PRODUCED DEFINITIONS
-#------------------------------------------------------------------------------
-
-ALT_CPPFLAGS += -DALTERA_AVALON_JTAG_UART_IGNORE_FIFO_FULL_ERROR
+ALT_CPPFLAGS += -D__ucosii__
 
 #END MANAGED
 

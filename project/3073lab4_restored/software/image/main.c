@@ -10,6 +10,7 @@
 
 #include "spi.h"
 #include "decoder.h"
+#include "decoderdebug.h"
 #include "shared_memory.h"
 
 /* ============================================================
@@ -67,11 +68,32 @@ static void shared_write_u32(uint32_t offset, uint32_t value)
 static void sync_panel_mode_to_esp(int force_send)
 {
     uint32_t mode = shared_read_u32(FLAG_CURRENT_GAME);
+    uint32_t old_mode = current_panel_mode;
 
     if (mode != GAME_MODE_SNAKE && mode != GAME_MODE_DRAW && mode != GAME_MODE_DEBUG && mode != GAME_MODE_BATTLE)
         mode = GAME_MODE_MENU;
 
     current_panel_mode = mode;
+
+    if (mode != old_mode)
+    {
+        /*
+           Very important for re-entering DEBUG: decoderdebug.c keeps a local
+           accumulator plus last-published command values. Control clears the
+           0x06000000 mailbox when DEBUG exits, so IMG must also reset its
+           decoder state when DEBUG is entered again. Otherwise the same second
+           DEBUG instruction looks "unchanged" to IMG and is never republished.
+        */
+        if (mode == GAME_MODE_DEBUG || old_mode == GAME_MODE_DEBUG)
+        {
+            decoder_debug_reset();
+        }
+
+        if (mode != GAME_MODE_DEBUG)
+        {
+            decoder_reset_stream();
+        }
+    }
 
     if (force_send || mode != last_sent_panel_mode)
     {
@@ -303,18 +325,35 @@ static int read_one_esp_packet(void)
     printf("SPI packet_len=%lu, text=[%s]\n", (unsigned long)packet_len, rx_text);
     fflush(stdout);
 
-    decoder_result = decoder_decode_and_store_panel_text_batch((int)current_panel_mode,
-                                                         rx_text,
-                                                         (unsigned int)strlen(rx_text));
-    print_decoder_result(decoder_result);
-
-    /*
-       If the stream is malformed, reset decoder so the next SNAKE header can
-       recover cleanly instead of staying poisoned forever.
-    */
-    if (decoder_result < 0 && decoder_result != DECODER_ERR_MAILBOX_BUSY)
+    if (current_panel_mode == GAME_MODE_DEBUG)
     {
-        decoder_reset_stream();
+        decoder_result = decoder_debug_decode_text(rx_text,
+                                                   (unsigned int)strlen(rx_text));
+        if (decoder_result == DEBUG_DECODER_PUBLISHED)
+        {
+            printf("Debug decoder: control command published to 0x06000000 mailbox\n");
+        }
+        else
+        {
+            printf("Debug decoder: no completed debug command yet\n");
+        }
+        fflush(stdout);
+    }
+    else
+    {
+        decoder_result = decoder_decode_and_store_panel_text_batch((int)current_panel_mode,
+                                                             rx_text,
+                                                             (unsigned int)strlen(rx_text));
+        print_decoder_result(decoder_result);
+
+        /*
+           If the stream is malformed, reset decoder so the next realtime header can
+           recover cleanly instead of staying poisoned forever.
+        */
+        if (decoder_result < 0 && decoder_result != DECODER_ERR_MAILBOX_BUSY)
+        {
+            decoder_reset_stream();
+        }
     }
 
     img_irq_tx_set_true();
@@ -337,6 +376,7 @@ int main(void)
     spi_init_manual();
     img_irq_tx_set_false();
     decoder_reset_stream();
+    decoder_debug_reset();
     shared_write_u32(FLAG_IMAGE_PROCESSOR_READY, 1);
 
     session_button_setup();

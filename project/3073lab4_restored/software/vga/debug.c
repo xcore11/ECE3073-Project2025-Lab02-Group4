@@ -62,7 +62,23 @@
 #define TEXT_START_Y        150
 #define TEXT_LINE_STEP      14
 #define DEBUG_MAX_LINES     6
-#define DEBUG_LINE_CHARS    8
+
+/*
+   Software font is 8 pixels wide per character.
+   Do not hard-limit debug rows to the old ESP/OCR row width.
+   Use the actual VGA text panel width so received sentences can occupy
+   almost the full 320-pixel box.
+
+   Capacity with the current values:
+       right edge = TEXT_REGION_X + TEXT_REGION_W = 320
+       start x    = TEXT_START_X = 10
+       margin     = 4
+       char width = 8
+       chars      = (320 - 10 - 4) / 8 = 38
+*/
+#define DEBUG_FONT_CHAR_W   8
+#define DEBUG_RIGHT_MARGIN  4
+#define DEBUG_LINE_CHARS    ((TEXT_REGION_X + TEXT_REGION_W - TEXT_START_X - DEBUG_RIGHT_MARGIN) / DEBUG_FONT_CHAR_W)
 
 #define VGA_BLACK           0x00
 #define VGA_DARK_BG         0x24
@@ -230,6 +246,8 @@ static int debug_refresh_image_from_sdram(void)
     return 1;
 }
 
+static int debug_last_line_is_text_fragment = 0;
+
 static void debug_clear_lines(void)
 {
     int i;
@@ -238,6 +256,22 @@ static void debug_clear_lines(void)
         debug_lines[i][0] = '\0';
 
     debug_line_count = 0;
+    debug_last_line_is_text_fragment = 0;
+}
+
+static void debug_make_empty_line_for_append(void)
+{
+    int i;
+
+    if (debug_line_count >= DEBUG_MAX_LINES)
+    {
+        for (i = 1; i < DEBUG_MAX_LINES; i++)
+            strcpy(debug_lines[i - 1], debug_lines[i]);
+        debug_line_count = DEBUG_MAX_LINES - 1;
+    }
+
+    debug_lines[debug_line_count][0] = '\0';
+    debug_line_count++;
 }
 
 static void debug_add_line(const char *line)
@@ -257,6 +291,42 @@ static void debug_add_line(const char *line)
     strncpy(debug_lines[debug_line_count], line, DEBUG_LINE_CHARS);
     debug_lines[debug_line_count][DEBUG_LINE_CHARS] = '\0';
     debug_line_count++;
+
+    /* System/status lines should not be merged with the next OCR fragment. */
+    debug_last_line_is_text_fragment = 0;
+}
+
+static void debug_append_text_fragment(const char *fragment)
+{
+    int i;
+
+    if (fragment == 0 || fragment[0] == '\0')
+        return;
+
+    i = 0;
+    while (fragment[i] != '\0')
+    {
+        int last_index;
+        int len;
+
+        if (debug_line_count == 0 ||
+            !debug_last_line_is_text_fragment ||
+            strlen(debug_lines[debug_line_count - 1]) >= DEBUG_LINE_CHARS)
+        {
+            debug_make_empty_line_for_append();
+            debug_last_line_is_text_fragment = 1;
+        }
+
+        last_index = debug_line_count - 1;
+        len = strlen(debug_lines[last_index]);
+
+        if (len < DEBUG_LINE_CHARS)
+        {
+            debug_lines[last_index][len] = fragment[i];
+            debug_lines[last_index][len + 1] = '\0';
+            i++;
+        }
+    }
 }
 
 static void debug_draw_text_panel(void)
@@ -289,8 +359,8 @@ static void debug_draw_text_panel(void)
 
 static void debug_append_text_from_sdram(uint16_t text_len)
 {
-    char line[DEBUG_LINE_CHARS + 1];
-    int line_pos = 0;
+    char fragment[DEBUG_LINE_CHARS + 1];
+    int fragment_pos = 0;
     uint16_t i;
 
     if (text_len == 0)
@@ -299,28 +369,31 @@ static void debug_append_text_from_sdram(uint16_t text_len)
     if (text_len > 512)
         text_len = 512;
 
-    memset(line, 0, sizeof(line));
+    memset(fragment, 0, sizeof(fragment));
 
     for (i = 0; i < text_len; i++)
     {
         char c = (char)(IORD_8DIRECT(TEXT_BUFFER_BASE, i) & 0xFF);
 
-        /*
-           Debug text now preserves row boundaries from Arduino.
-           Newline means "draw next VGA debug line", not a normal space.
-        */
         if (c == '\0')
             break;
 
         if (c == '\r' || c == '\n')
         {
-            if (line_pos > 0)
+            if (fragment_pos > 0)
             {
-                line[line_pos] = '\0';
-                debug_add_line(line);
-                line_pos = 0;
-                memset(line, 0, sizeof(line));
+                fragment[fragment_pos] = '\0';
+                debug_append_text_fragment(fragment);
+                fragment_pos = 0;
+                memset(fragment, 0, sizeof(fragment));
             }
+
+            /*
+               Do not force a VGA newline here.
+               The ESP/Python debug stream may arrive as several short OCR rows
+               such as redledmo / duleblin / kingever.  Those fragments should
+               be stitched together and wrapped only when the VGA text box is full.
+            */
             continue;
         }
 
@@ -329,21 +402,21 @@ static void debug_append_text_from_sdram(uint16_t text_len)
         if (c < 32 || c > 126)
             c = ' ';
 
-        line[line_pos++] = c;
+        fragment[fragment_pos++] = c;
 
-        if (line_pos >= DEBUG_LINE_CHARS)
+        if (fragment_pos >= DEBUG_LINE_CHARS)
         {
-            line[line_pos] = '\0';
-            debug_add_line(line);
-            line_pos = 0;
-            memset(line, 0, sizeof(line));
+            fragment[fragment_pos] = '\0';
+            debug_append_text_fragment(fragment);
+            fragment_pos = 0;
+            memset(fragment, 0, sizeof(fragment));
         }
     }
 
-    if (line_pos > 0)
+    if (fragment_pos > 0)
     {
-        line[line_pos] = '\0';
-        debug_add_line(line);
+        fragment[fragment_pos] = '\0';
+        debug_append_text_fragment(fragment);
     }
 
     debug_draw_text_panel();

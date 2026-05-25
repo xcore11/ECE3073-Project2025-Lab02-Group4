@@ -19,13 +19,15 @@
 OS_STK input_task_stk[EFFICIENT_STACKSIZE];
 OS_STK hex_task_stk[HEAVY_STACKSIZE];
 OS_STK leds_update_task_stk[EFFICIENT_STACKSIZE];
+OS_STK sfx_task_stk[HEAVY_STACKSIZE];
 OS_STK initial_task_stk[EFFICIENT_STACKSIZE];
 
 // Priorities
-#define   INPUT_TASK_PRIO			3
-#define   HEX_TASK_PRIO 			5
-#define   LEDS_UPDATE_TASK_PRIO		4
-#define   INITIAL_TASK_PRIO			7
+#define   INPUT_TASK_PRIO            3
+#define   LEDS_UPDATE_TASK_PRIO      4
+#define   HEX_TASK_PRIO              5
+#define   SFX_TASK_PRIO              6
+#define   INITIAL_TASK_PRIO          7
 // List of semaphores
 OS_EVENT *input_update_sem;
 OS_EVENT *leds_update_sem;
@@ -48,6 +50,10 @@ void Initial_Task(void* pdata) {
 	OSTaskCreateExt(leds_update_task, NULL, &leds_update_task_stk[EFFICIENT_STACKSIZE - 1],
 			LEDS_UPDATE_TASK_PRIO, LEDS_UPDATE_TASK_PRIO, leds_update_task_stk, EFFICIENT_STACKSIZE, NULL, 0);
 
+	// For speaker / gameplay SFX / DEBUG speaker command
+	OSTaskCreateExt(sfx_task, NULL, &sfx_task_stk[HEAVY_STACKSIZE - 1],
+			SFX_TASK_PRIO, SFX_TASK_PRIO, sfx_task_stk, HEAVY_STACKSIZE, NULL, 0);
+
 	// Delete task
 	OSTaskDel(OS_PRIO_SELF);
 }
@@ -59,6 +65,8 @@ int main(void)
 	leds_update_sem = OSSemCreate(0);
 
 	// then initialize the rest
+	sound_init();
+	debug_control_init();
 	control_shared_flags_init();
 	switch_setup();
 	key_setup();
