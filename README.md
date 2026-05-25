@@ -82,26 +82,37 @@ ECE3073-Project2025-Lab02-Group4/
 
 ## a) Key Features (Full Integration)
 
-### Core Architecture & Processing
-* **Altera DE10-Lite FPGA:** The heart of the system, running a custom triple-core Nios II processor architecture (Control, Image, and VGA cores) to handle parallel processing.
-* **Real-Time Operating System (RTOS):** Implemented on the Control processor to efficiently manage hardware states, audio queues, and background tasks.
+## a) Key Features
 
-### Hardware & Peripherals
-* **Grove Vision AI V2 & Camera Module:** Captures real-world, live-drawn maps and processes them via AI to generate dynamic in-game obstacles.
-* **On-board Accelerometer:** Measures tilt angles to provide a physical, motion-based steering mechanism for the game.
-* **VGA Output:** Renders the 8-bit game interface, live camera feeds, and UI elements to an external monitor at 60 FPS.
+### 🏗️ Core Architecture & Processing
+* **Triple-Core Nios II System:** Workloads are completely isolated across three dedicated soft-cores (Control, Image, and VGA) operating in parallel to eliminate traditional I/O bottlenecking.
+* **Shared SDRAM Fabric:** Implements a decoupled memory communication layout separating active runtime variables (`0x05212000`) from a standalone debug-control mailbox (`0x06000000`) to guarantee thread safety.
+* **$\mu$C/OS-II Real-Time Operating System:** Deployed on the Control processor to handle concurrent peripheral updating, event dispatch handling, and background performance tracking via deterministic priority scheduling.
 
-### Immersive Audio/Visual Feedback
-* **Custom Sound Engine (Buzzer):** Plays retro-arcade 8-bit sound effects using direct hardware PWM (e.g., Apple eating chirps, Game Over fanfares).
-* **LED Traffic Lights & HEX Displays:** Provides real-time physical feedback, including a cascading Red/Yellow/Green "Game Over" sequence and live CPU load monitoring on the 5th and 6th HEX displays.
+### 🔌 Hardware & Peripherals
+* **ESP32-C3 & Grove Vision AI V2:** Captures physical text arrays or images, executing edge-based OCR processing before piping data packets across an Avalon SPI master interface.
+* **On-board ADXL345 Accelerometer:** Reads physical board tilt angles, translating telemetry changes into real-time cursor navigation and motion controls.
+* **VGA Graphics Engine:** Directly outputs RGB332 8-bit color landscapes onto an external monitor at an unyielding 60 FPS frame rate.
+* **Audio & Visual Indicators:** Uses direct register I/O manipulation to drive onboard 7-segment HEX modules, LEDR bars, and passive audio pins.
 
-### User Controls (Switches & Keys)
-* **SW2:** Toggles the CPU load display on the HEX modules.
-* **SW4:** Triggers the main game interface.
-* **SW5 to SW8:** Toggles various internal game functions and debug states.
-* **SW9:** Master switch to return to the Main Menu.
-* **KEY0 & KEY1:** Primary physical push-buttons for discrete game actions.
+### 🕹️ User Controls (Master Switches & Buttons)
+* **SW1:** Master enable for the 7-segment HEX displays.
+* **SW2:** Enables processing and rendering of incoming scrolling text arrays parsed via OCR.
+* **SW3:** Triggers a real-time CPU utilization overlay on the final two HEX modules.
+* **SW4:** Hardware gate to safely isolate or silence the active speaker system.
+* **KEY0 & KEY1:** Primary physical push-buttons handling menu confirmations, state retries, and live camera snapshot triggers.
 
+## b) Summarised Game Functions
+
+### 🎮 Multi-Game Ecosystem
+* **Classic Snake:** Navigate a 32x22 wrap-around arena complete with directional input filtering, portal mappings, and a progressive score tally reflected across the onboard LEDR array.
+* **Draw Pixel:** A high-density 96x96 virtual sketch canvas. Pressing `KEY0` captures a 96x96 live grayscale snapshot from the camera interface, instantly rendering it into the background layer as an interactive texture.
+* **Battleship:** A tactical grid-aiming game utilizing real-time accelerometer tilt tracking to position your cursor, featuring cross and square weapon strike variations.
+
+### 📜 Real-Time Instruction & Debug Processing
+* **Python UI Synchronization:** A companion Python engine translates terminal commands into fixed-width string lines.
+* **OCR Command Ingestion:** The Grove AI module reads scrolling characters and passes them to the FPGA's Image Core, which waits for a `ZZZ` execution delimiter before safely printing dynamic parameters to the debug mailbox without interrupting active graphics tasks.
+* **Dynamic Performance Overlays:** Toggling `SW3` polls internal $\mu$C/OS-II timing counters, overriding the 7-segment display data to continuously track and print active processor load values during dense gameplay loops.
 ---
 
 ## b) Summarised Game Functions
@@ -110,6 +121,8 @@ ECE3073-Project2025-Lab02-Group4/
 * **Live Map Generation:** Draw a maze or obstacles on a physical piece of paper, show it to the camera, and watch the hardware translate it into playable in-game walls.
 * **Motion Control Steering:** Tilt the physical DE10-Lite board up, down, left, or right to steer the snake using real-time accelerometer data.
 * **Arcade Hardware Integration:** Every in-game action is tied to physical hardware. Eating an apple flashes the green LED and plays a chirp; hitting a wall locks the board into a flashing red-light "Game Over" state with a dramatic audio fanfare.
+
+---
 
 ## Roadmap
 ### Milestone 1: VGA Controller
