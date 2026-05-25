@@ -61,38 +61,57 @@ static void pt_pixel_spark(int x, int y, vga_color_t c)
 }
 
 
-static unsigned char pt_letter_mask(char ch, int row)
-{
-    static const unsigned char A[7] = {0x0E,0x11,0x11,0x1F,0x11,0x11,0x11};
-    static const unsigned char D[7] = {0x1E,0x11,0x11,0x11,0x11,0x11,0x1E};
-    static const unsigned char E[7] = {0x1F,0x10,0x10,0x1E,0x10,0x10,0x1F};
-    static const unsigned char H[7] = {0x11,0x11,0x11,0x1F,0x11,0x11,0x11};
-    static const unsigned char I[7] = {0x1F,0x04,0x04,0x04,0x04,0x04,0x1F};
-    static const unsigned char R[7] = {0x1E,0x11,0x11,0x1E,0x14,0x12,0x11};
-    static const unsigned char S[7] = {0x0F,0x10,0x10,0x0E,0x01,0x01,0x1E};
-    static const unsigned char T[7] = {0x1F,0x04,0x04,0x04,0x04,0x04,0x04};
-    const unsigned char *m = 0;
 
-    if (row < 0 || row >= 7)
+static unsigned short pt_fantasy_letter_mask(char ch, int row)
+{
+    /*
+       7x9 title alphabet.
+       The title renderer below adds outlines, bevels, serifs and leaf/wood accents,
+       so the masks stay readable on the 320x240 RGB332 framebuffer.
+    */
+    static const unsigned short A[9] = {0x1C,0x36,0x63,0x63,0x7F,0x63,0x63,0x63,0x63};
+    static const unsigned short C[9] = {0x3E,0x63,0x60,0x60,0x60,0x60,0x60,0x63,0x3E};
+    static const unsigned short D[9] = {0x7C,0x66,0x63,0x63,0x63,0x63,0x63,0x66,0x7C};
+    static const unsigned short E[9] = {0x7F,0x60,0x60,0x60,0x7C,0x60,0x60,0x60,0x7F};
+    static const unsigned short H[9] = {0x63,0x63,0x63,0x63,0x7F,0x63,0x63,0x63,0x63};
+    static const unsigned short I[9] = {0x7F,0x1C,0x1C,0x1C,0x1C,0x1C,0x1C,0x1C,0x7F};
+    static const unsigned short L[9] = {0x60,0x60,0x60,0x60,0x60,0x60,0x60,0x60,0x7F};
+    static const unsigned short N[9] = {0x63,0x73,0x7B,0x7F,0x6F,0x67,0x63,0x63,0x63};
+    static const unsigned short O[9] = {0x3E,0x63,0x63,0x63,0x63,0x63,0x63,0x63,0x3E};
+    static const unsigned short P[9] = {0x7E,0x63,0x63,0x63,0x7E,0x60,0x60,0x60,0x60};
+    static const unsigned short R[9] = {0x7E,0x63,0x63,0x63,0x7E,0x6C,0x66,0x63,0x63};
+    static const unsigned short S[9] = {0x3F,0x60,0x60,0x60,0x3E,0x03,0x03,0x03,0x7E};
+    static const unsigned short T[9] = {0x7F,0x08,0x08,0x08,0x08,0x08,0x08,0x08,0x08};
+    static const unsigned short U[9] = {0x63,0x63,0x63,0x63,0x63,0x63,0x63,0x63,0x3E};
+    static const unsigned short X[9] = {0x63,0x63,0x36,0x1C,0x08,0x1C,0x36,0x63,0x63};
+    const unsigned short *m = 0;
+
+    if (row < 0 || row >= 9)
         return 0;
 
     switch (ch)
     {
         case 'A': m = A; break;
+        case 'C': m = C; break;
         case 'D': m = D; break;
         case 'E': m = E; break;
         case 'H': m = H; break;
         case 'I': m = I; break;
+        case 'L': m = L; break;
+        case 'N': m = N; break;
+        case 'O': m = O; break;
+        case 'P': m = P; break;
         case 'R': m = R; break;
         case 'S': m = S; break;
         case 'T': m = T; break;
+        case 'U': m = U; break;
+        case 'X': m = X; break;
         default: return 0;
     }
-
     return m[row];
 }
 
-static int pt_swag_text_width(const char *text, int scale)
+static int pt_fantasy_text_width(const char *text, int scale)
 {
     int i;
     int w = 0;
@@ -100,21 +119,20 @@ static int pt_swag_text_width(const char *text, int scale)
         return 0;
 
     for (i = 0; text[i] != '\0'; i++)
-        w += (text[i] == ' ') ? (3 * scale) : (6 * scale);
+        w += (text[i] == ' ') ? (4 * scale) : (8 * scale);
 
     if (w > 0)
         w -= scale;
-    return w + (3 * scale);
+    return w;
 }
 
-static void pt_draw_swag_text_layer(int x, int y, const char *text, int scale,
-                                    vga_color_t color, vga_color_t highlight,
-                                    int slant)
+static void pt_draw_fantasy_text_layer(int x, int y, const char *text, int scale,
+                                       vga_color_t color, vga_color_t highlight,
+                                       int serif)
 {
     int i;
     int cx = x;
-
-    if (text == 0)
+    if (text == 0 || scale <= 0)
         return;
 
     for (i = 0; text[i] != '\0'; i++)
@@ -122,24 +140,23 @@ static void pt_draw_swag_text_layer(int x, int y, const char *text, int scale,
         int row;
         if (text[i] == ' ')
         {
-            cx += 3 * scale;
+            cx += 4 * scale;
             continue;
         }
 
-        for (row = 0; row < 7; row++)
+        for (row = 0; row < 9; row++)
         {
             int col;
-            unsigned char mask = pt_letter_mask(text[i], row);
-            int row_slant = slant ? ((row * scale) / 2) : 0;
-
-            for (col = 0; col < 5; col++)
+            unsigned short mask = pt_fantasy_letter_mask(text[i], row);
+            for (col = 0; col < 7; col++)
             {
-                if (mask & (1u << (4 - col)))
+                if (mask & (1u << (6 - col)))
                 {
-                    int px = cx + col * scale + row_slant;
+                    int px = cx + col * scale;
                     int py = y + row * scale;
                     vga_draw_rectangle(px, py, scale, scale, color);
-                    if (highlight != color && scale >= 3)
+
+                    if (highlight != color && scale >= 2)
                     {
                         vga_draw_rectangle(px, py, scale, 1, highlight);
                         vga_draw_rectangle(px, py, 1, scale, highlight);
@@ -148,21 +165,84 @@ static void pt_draw_swag_text_layer(int x, int y, const char *text, int scale,
             }
         }
 
-        cx += 6 * scale;
+        if (serif && scale >= 2)
+        {
+            /* Small hand-crafted title-font feet/spikes: makes each character look less plain. */
+            vga_draw_rectangle(cx - scale, y, 3 * scale, scale, color);
+            vga_draw_rectangle(cx + 5 * scale, y + 8 * scale, 3 * scale, scale, color);
+            if (text[i] == 'A' || text[i] == 'R' || text[i] == 'S' || text[i] == 'T')
+                vga_draw_rectangle(cx + 6 * scale, y - scale, 2 * scale, scale, color);
+            if (text[i] == 'E' || text[i] == 'F')
+                vga_draw_rectangle(cx + 6 * scale, y + 4 * scale, 2 * scale, scale, color);
+        }
+
+        cx += 8 * scale;
     }
 }
 
-static void pt_draw_swag_text(int x, int y, const char *text, int scale,
-                              vga_color_t fill, vga_color_t highlight)
+static void pt_draw_leaf_pair(int x, int y)
 {
-    /* Big arcade/fighting-game pixel title: black drop, hot-pink under-cut, gold/cyan face. */
-    pt_draw_swag_text_layer(x + 5, y + 6, text, scale, PT_BLACK, PT_BLACK, 1);
-    pt_draw_swag_text_layer(x + 2, y + 4, text, scale, PT_MAGIC_PINK, PT_MAGIC_PINK, 1);
-    pt_draw_swag_text_layer(x - 1, y, text, scale, PT_INK, PT_INK, 1);
-    pt_draw_swag_text_layer(x + 1, y, text, scale, PT_INK, PT_INK, 1);
-    pt_draw_swag_text_layer(x, y - 1, text, scale, PT_INK, PT_INK, 1);
-    pt_draw_swag_text_layer(x, y + 1, text, scale, PT_INK, PT_INK, 1);
-    pt_draw_swag_text_layer(x, y, text, scale, fill, highlight, 1);
+    vga_draw_rectangle(x + 2, y + 3, 6, 3, PT_LEAF);
+    vga_draw_rectangle(x + 4, y + 2, 3, 5, PT_GRASS_LIGHT);
+    vga_draw_rectangle(x + 10, y + 1, 5, 4, PT_LEAF);
+    vga_draw_rectangle(x + 10, y + 2, 2, 2, PT_GRASS_LIGHT);
+    vga_draw_rectangle(x + 7, y + 5, 6, 1, PT_WOOD_DARK);
+}
+
+static void pt_draw_fantasy_title_text(int x, int y, const char *text, int scale,
+                                       vga_color_t fill, vga_color_t highlight,
+                                       int leaves)
+{
+    int w = pt_fantasy_text_width(text, scale);
+
+    /* heavy readable outline */
+    pt_draw_fantasy_text_layer(x + 4, y + 5, text, scale, PT_BLACK, PT_BLACK, 0);
+    pt_draw_fantasy_text_layer(x - scale, y, text, scale, PT_INK, PT_INK, 0);
+    pt_draw_fantasy_text_layer(x + scale, y, text, scale, PT_INK, PT_INK, 0);
+    pt_draw_fantasy_text_layer(x, y - scale, text, scale, PT_INK, PT_INK, 0);
+    pt_draw_fantasy_text_layer(x, y + scale, text, scale, PT_INK, PT_INK, 0);
+
+    /* warm under-shadow, like carved/painted title wood */
+    if (scale >= 2)
+        pt_draw_fantasy_text_layer(x + scale, y + 2 * scale, text, scale, PT_AMBER, PT_AMBER, 0);
+
+    pt_draw_fantasy_text_layer(x, y, text, scale, fill, highlight, 1);
+
+    if (scale >= 2)
+    {
+        int by = y + 9 * scale + 2;
+        vga_draw_rectangle(x + scale, by, w - 2 * scale, scale, PT_BLACK);
+        vga_draw_rectangle(x + 2 * scale, by - scale, w - 4 * scale, scale, highlight);
+    }
+
+    if (leaves)
+    {
+        pt_draw_leaf_pair(x - 13, y + 4 * scale);
+        pt_draw_leaf_pair(x + w + 2, y + 2 * scale);
+    }
+}
+
+static void pt_draw_fantasy_title_centered(int y, const char *text, int scale,
+                                           vga_color_t fill, vga_color_t highlight,
+                                           int leaves)
+{
+    int w = pt_fantasy_text_width(text, scale);
+    int x = (320 - w) / 2;
+    pt_draw_fantasy_title_text(x, y, text, scale, fill, highlight, leaves);
+}
+
+static void pt_draw_clean_fantasy_text_centered(int y, const char *text,
+                                                vga_color_t fill, vga_color_t highlight)
+{
+    int w = pt_fantasy_text_width(text, 1);
+    int x = (320 - w) / 2;
+
+    /* Clean Pixel Studio title: outline only, no drop shadow and no leaf clutter. */
+    pt_draw_fantasy_text_layer(x - 1, y, text, 1, PT_INK, PT_INK, 0);
+    pt_draw_fantasy_text_layer(x + 1, y, text, 1, PT_INK, PT_INK, 0);
+    pt_draw_fantasy_text_layer(x, y - 1, text, 1, PT_INK, PT_INK, 0);
+    pt_draw_fantasy_text_layer(x, y + 1, text, 1, PT_INK, PT_INK, 0);
+    pt_draw_fantasy_text_layer(x, y, text, 1, fill, highlight, 1);
 }
 
 static void pt_draw_rope_platform(int x, int y, int w)
@@ -221,34 +301,116 @@ void pt_menu_draw_background(void)
 
 void pt_menu_draw_title(void)
 {
-    /* Custom chunky title, closer to the fighting-game / indie splash references. */
-    pt_draw_swag_text(83, 14, "AETHER", 3, PT_GOLD, PT_CREAM);
-    pt_draw_swag_text(78, 44, "TIDES", 4, PT_WATER_LIGHT, PT_WHITE);
+    /*
+       Custom fantasy-pixel wordmark. It avoids a normal software-font look by
+       drawing every title character from our own 7x9 masks, then adding bevels,
+       carved serifs, shadows, small leaves and a compass underline.
+    */
+    pt_draw_fantasy_title_centered(12, "AETHER", 3, PT_CREAM, PT_WHITE, 1);
+    pt_draw_fantasy_title_centered(44, "TIDES", 4, PT_WATER_LIGHT, PT_WHITE, 1);
 
-    vga_draw_rectangle(70, 78, 184, 4, PT_BLACK);
-    vga_draw_rectangle(66, 74, 184, 4, PT_MAGIC_PINK);
-    vga_draw_rectangle(82, 72, 154, 3, PT_GOLD);
-    vga_draw_rectangle(94, 82, 128, 2, PT_CREAM);
+    vga_draw_rectangle(92, 85, 136, 3, PT_BLACK);
+    vga_draw_rectangle(99, 84, 122, 2, PT_GOLD);
+    vga_draw_rectangle(150, 82, 20, 2, PT_CREAM);
+    vga_draw_rectangle(158, 75, 3, 17, PT_GOLD);
+    vga_draw_rectangle(151, 82, 17, 3, PT_GOLD);
+    vga_draw_rectangle(156, 80, 7, 7, PT_WHITE);
+    vga_draw_rectangle(158, 82, 3, 3, PT_MAGIC_BLUE);
 
-    vga_draw_rectangle(56, 35, 8, 8, PT_WATER_LIGHT);
-    vga_draw_rectangle(254, 43, 8, 8, PT_MAGIC_PURPLE);
-    vga_draw_rectangle(270, 60, 5, 5, PT_GOLD);
+    vga_draw_rectangle(52, 33, 7, 7, PT_WATER_LIGHT);
+    vga_draw_rectangle(259, 40, 7, 7, PT_MAGIC_PURPLE);
+    vga_draw_rectangle(275, 62, 5, 5, PT_GOLD);
+}
+
+static void pt_menu_clip_rect(int rx, int ry, int rw, int rh,
+                              int cx, int cy, int cw, int ch,
+                              vga_color_t color)
+{
+    int x0 = rx;
+    int y0 = ry;
+    int x1 = rx + rw;
+    int y1 = ry + rh;
+    int c0 = cx;
+    int d0 = cy;
+    int c1 = cx + cw;
+    int d1 = cy + ch;
+
+    if (x0 < c0) x0 = c0;
+    if (y0 < d0) y0 = d0;
+    if (x1 > c1) x1 = c1;
+    if (y1 > d1) y1 = d1;
+
+    if (x1 > x0 && y1 > y0)
+        vga_draw_rectangle(x0, y0, x1 - x0, y1 - y0, color);
+}
+
+static void pt_menu_restore_option_row(int y)
+{
+    /*
+       Restore only the menu row area using the real title-screen scenery.
+       The rectangle is large enough to erase the selected brown hover button,
+       so menu_update_selection() can switch options without a full refresh.
+    */
+    const int rx = 54;
+    const int ry = y - 10;
+    const int rw = 212;
+    const int rh = 30;
+    int yy;
+    int wave_y;
+    int x;
+
+    for (yy = ry; yy < ry + rh; yy++)
+    {
+        vga_color_t c;
+        if (yy < 42)
+            c = PT_SKY_LIGHT;
+        else if (yy < 86)
+            c = PT_SKY;
+        else if (yy < 142)
+            c = VGA_RGB332(2,4,3);
+        else
+            c = PT_WATER_DARK;
+
+        vga_draw_rectangle(rx, yy, rw, 1, c);
+    }
+
+    /* Repaint the distant island silhouettes if the restored row crosses them. */
+    pt_menu_clip_rect(0, 120, 320, 22, rx, ry, rw, rh, VGA_RGB332(1,3,2));
+    for (x = 0; x < 320; x += 28)
+    {
+        int iy = 112 + ((x / 28) & 1) * 5;
+        pt_menu_clip_rect(x, iy, 18, 14, rx, ry, rw, rh, VGA_RGB332(1,4,2));
+    }
+
+    /* Repaint only the small water highlights that pass through this row. */
+    for (wave_y = 150; wave_y < 232; wave_y += 14)
+    {
+        pt_menu_clip_rect(0, wave_y, 320, 2, rx, ry, rw, rh,
+                          (wave_y & 16) ? PT_WATER : PT_WATER_LIGHT);
+        pt_menu_clip_rect((wave_y * 3) % 41, wave_y + 6, 68, 1,
+                          rx, ry, rw, rh, PT_FOAM);
+        pt_menu_clip_rect(180 + ((wave_y * 5) % 29), wave_y + 8, 88, 1,
+                          rx, ry, rw, rh, PT_WATER_LIGHT);
+    }
 }
 
 void pt_menu_draw_option(int y, const char *text, int selected)
 {
+    pt_menu_restore_option_row(y);
+
     if (selected)
     {
+        /* Hover/selected state: keep the old brown button, but only for the active row. */
         pt_draw_shadow_box(58, y - 7, 204, 23, PT_WOOD_DARK, PT_GOLD, PT_SHADOW);
         vga_draw_rectangle(62, y - 3, 196, 15, PT_WOOD);
+        vga_draw_rectangle(66, y - 1, 188, 1, PT_WOOD_LIGHT);
         vga_draw_rectangle(70, y + 3, 8, 3, PT_CREAM);
         vga_draw_rectangle(244, y + 3, 8, 3, PT_CREAM);
         pt_print_shadow(92, y, text, PT_WHITE);
     }
     else
     {
-        vga_draw_rectangle(80, y - 2, 160, 12, PT_WATER_DARK);
-        vga_draw_rectangle(80, y + 10, 160, 1, PT_WATER_LIGHT);
+        /* Idle state: no blue or brown backing bar, only clean text over the scenery. */
         pt_print_shadow(96, y, text, PT_CREAM);
     }
 }
@@ -302,18 +464,44 @@ static void pt_draw_side_props(void)
 
 void pt_draw_snake_cell_background(int px, int py, int size, int gx, int gy)
 {
-    vga_color_t base = ((gx + gy) & 1) ? PT_DIRT : PT_SAND;
-    vga_draw_rectangle(px, py, size - 1, size - 1, base);
-    vga_draw_rectangle(px, py, size - 1, 1, PT_SAND_LIGHT);
-    vga_draw_rectangle(px, py + size - 2, size - 1, 1, PT_DIRT_DARK);
+    /*
+       Light natural dirt floor. Keep it close to the snake brightness so the
+       snake still reads clearly without the arena becoming high-contrast/noisy.
+    */
+    unsigned int h = (unsigned int)(gx * 41 + gy * 73 + gx * gy * 17);
+    vga_color_t base = PT_SAND_LIGHT;
 
-    /* Dirt speckles instead of grass, so the green snake stays readable. */
-    if (((gx * 5 + gy * 3) & 7) == 0)
-        vga_draw_rectangle(px + 2, py + 2, 2, 1, PT_DIRT_LIGHT);
-    if (((gx * 7 + gy) & 11) == 0)
-        vga_draw_rectangle(px + size - 4, py + size - 3, 2, 1, PT_DIRT_DARK);
-    if (((gx * 11 + gy * 5) & 15) == 0)
-        vga_draw_rectangle(px + size / 2, py + 4, 1, 1, PT_STONE_DARK);
+    if ((h % 19u) < 6u)
+        base = PT_SAND;
+    if ((h % 29u) == 5u || (h % 31u) == 7u)
+        base = PT_DIRT_LIGHT;
+
+    vga_draw_rectangle(px, py, size - 1, size - 1, base);
+
+    /* Per-cell pixel flecks: more texture, but mostly light/subtle shades. */
+    if (size >= 8)
+    {
+        vga_draw_rectangle(px + 1, py + 1 + (int)(h % 2u), 2, 1, PT_SAND);
+        vga_draw_rectangle(px + 5, py + 2 + (int)((h >> 2) % 2u), 2, 1, PT_SAND);
+        vga_draw_rectangle(px + 2 + (int)((h >> 3) % 3u), py + 5, 2, 1, PT_SAND_LIGHT);
+        vga_draw_rectangle(px + 6, py + 6, 1, 1, PT_DIRT_LIGHT);
+
+        if ((h & 3u) == 0u)
+            vga_draw_rectangle(px + 1, py + 3, 5, 1, PT_SAND);
+        if ((h & 7u) == 5u)
+            vga_draw_rectangle(px + 3, py + 6, 4, 1, PT_SAND_LIGHT);
+        if ((h % 11u) == 2u)
+            vga_draw_rectangle(px + 1, py + size - 3, 3, 1, PT_DIRT_LIGHT);
+        if ((h % 17u) == 4u)
+            vga_draw_rectangle(px + size - 3, py + 2, 1, 1, PT_STONE);
+        if ((h % 23u) == 8u)
+            vga_draw_rectangle(px + 2, py + size - 3, 2, 1, PT_MOSS);
+    }
+    else
+    {
+        if ((h & 3u) == 0u)
+            vga_draw_rectangle(px + 1, py + 1, size - 3, 1, PT_SAND);
+    }
 }
 
 void pt_draw_snake_background(int grid_x0, int grid_y0, int grid_w, int grid_h, int cell_size)
@@ -679,37 +867,108 @@ void pt_draw_canvas_background(void)
 {
     int x;
     int y;
-    vga_fill_background(PT_INK);
-    vga_draw_rectangle(0, 0, 320, 28, PT_WOOD_DARK);
-    vga_draw_rectangle(0, 28, 320, 2, PT_GOLD);
+
+    /* Ancient forest studio, cleaned up: no top leaf clutter or heavy shadows. */
+    vga_fill_background(VGA_RGB332(0,1,1));
+    vga_draw_rectangle(0, 0, 320, 38, VGA_RGB332(0,2,1));
+    vga_draw_rectangle(0, 38, 320, 176, VGA_RGB332(0,1,1));
+    vga_draw_rectangle(0, 38, 320, 2, PT_WOOD_DARK);
+    vga_draw_rectangle(0, 40, 320, 1, PT_GOLD);
+
+    /* subtle side forest only; top is kept clean so the title is readable. */
+    for (y = 50; y < 206; y += 34)
+    {
+        vga_draw_rectangle(0, y, 8, 18, PT_GRASS_DARK);
+        vga_draw_rectangle(312, y + 6, 8, 18, PT_GRASS_DARK);
+        vga_draw_rectangle(4, y + 8, 7, 5, PT_MOSS);
+        vga_draw_rectangle(309, y + 12, 7, 5, PT_MOSS);
+    }
+
+    /* tree trunks and forest depth */
+    vga_draw_rectangle(28, 28, 9, 190, PT_WOOD_DARK);
+    vga_draw_rectangle(31, 28, 3, 190, PT_WOOD);
+    vga_draw_rectangle(284, 32, 11, 186, PT_WOOD_DARK);
+    vga_draw_rectangle(287, 32, 4, 186, PT_WOOD);
     vga_draw_rectangle(0, 214, 320, 26, PT_WOOD_DARK);
     vga_draw_rectangle(0, 214, 320, 2, PT_GOLD);
 
-    /* Pixel-art studio side tables and tools. */
-    vga_draw_rectangle(0, 32, 58, 182, VGA_RGB332(0,1,1));
-    vga_draw_rectangle(262, 32, 58, 182, VGA_RGB332(0,1,1));
-    vga_draw_rectangle(4, 38, 48, 3, PT_GOLD);
-    vga_draw_rectangle(268, 38, 46, 3, PT_GOLD);
-    pt_draw_brush_icon(16, 54, 0);
-    pt_draw_bucket_icon(15, 98);
-    pt_draw_palette_icon(14, 146);
-    pt_draw_brush_icon(282, 56, 1);
-    pt_draw_bucket_icon(280, 103);
-    pt_draw_palette_icon(280, 151);
+    /* side tool boards */
+    pt_draw_shadow_box(4, 44, 48, 154, PT_WOOD_DARK, PT_GOLD, PT_SHADOW);
+    pt_draw_shadow_box(268, 44, 48, 154, PT_WOOD_DARK, PT_GOLD, PT_SHADOW);
+    pt_print_shadow(11, 49, "TOOLS", PT_CREAM);
+    pt_print_shadow(273, 49, "COLOR", PT_CREAM);
 
-    for (x = 12; x < 318; x += 34)
-        vga_draw_rectangle(x, 226, 18, 3, (x & 4) ? PT_MAGIC_PURPLE : PT_WATER_LIGHT);
-    for (y = 48; y < 200; y += 22)
+    /* tool slots */
+    for (y = 0; y < 3; y++)
     {
-        vga_draw_rectangle(8, y, 6, 6, (y & 16) ? PT_GOLD : PT_MAGIC_BLUE);
-        vga_draw_rectangle(306, y + 8, 6, 6, (y & 16) ? PT_MAGIC_PINK : PT_WATER_LIGHT);
+        for (x = 0; x < 2; x++)
+        {
+            vga_draw_rectangle(10 + x * 19, 66 + y * 34, 16, 24, PT_INK);
+            vga_draw_rectangle(11 + x * 19, 67 + y * 34, 14, 22, PT_DARK);
+        }
     }
+    pt_draw_brush_icon(6, 61, 0);
+    pt_draw_bucket_icon(25, 61);
+    pt_draw_palette_icon(7, 99);
+    pt_draw_brush_icon(25, 99, 1);
+    pt_draw_bucket_icon(6, 135);
+    pt_draw_palette_icon(25, 137);
+
+    /* color swatches and paint table */
+    for (y = 0; y < 5; y++)
+    {
+        for (x = 0; x < 2; x++)
+        {
+            vga_color_t c = (vga_color_t)((x + y * 2) * 21 + 0x20);
+            vga_draw_rectangle(276 + x * 17, 66 + y * 18, 14, 14, PT_INK);
+            vga_draw_rectangle(278 + x * 17, 68 + y * 18, 10, 10, c);
+            vga_draw_rectangle(278 + x * 17, 68 + y * 18, 10, 1, PT_WHITE);
+        }
+    }
+    vga_draw_rectangle(272, 166, 40, 17, PT_WOOD);
+    vga_draw_rectangle(276, 160, 29, 10, PT_WOOD_LIGHT);
+    vga_draw_rectangle(280, 163, 5, 4, PT_RED);
+    vga_draw_rectangle(288, 162, 5, 4, PT_GOLD);
+    vga_draw_rectangle(296, 164, 5, 4, PT_MAGIC_BLUE);
+
+    /* little forest floor details */
+    for (x = 58; x < 262; x += 23)
+    {
+        vga_draw_rectangle(x, 221 + (x & 3), 11, 3, PT_STONE);
+        vga_draw_rectangle(x + 3, 218 + (x & 1), 4, 5, PT_GRASS_LIGHT);
+    }
+    vga_draw_rectangle(58, 222, 8, 5, PT_RED_DARK);
+    vga_draw_rectangle(60, 220, 4, 3, PT_CREAM);
+    vga_draw_rectangle(250, 222, 8, 5, PT_RED_DARK);
+    vga_draw_rectangle(253, 220, 4, 3, PT_CREAM);
+
+    /* same custom title family as the main menu, but clean: no drop shadow/leaves. */
+    pt_draw_clean_fantasy_text_centered(7, "PIXEL STUDIO", PT_CREAM, PT_WHITE);
 }
 
 void pt_draw_canvas_frame(int x, int y, int w, int h)
 {
-    pt_draw_shadow_box(x - 4, y - 4, w + 8, h + 8, PT_WOOD_DARK, PT_GOLD, PT_SHADOW);
+    int i;
+    /* Clean carved wooden frame: no heavy drop shadow and no green leaf clutter. */
+    vga_draw_rectangle(x - 7, y - 7, w + 14, h + 14, PT_WOOD_DARK);
+    vga_draw_rectangle(x - 5, y - 5, w + 10, h + 10, PT_WOOD);
+    vga_draw_rectangle(x - 3, y - 3, w + 6, h + 6, PT_WOOD_LIGHT);
     vga_draw_rectangle(x - 1, y - 1, w + 2, h + 2, PT_BLACK);
+
+    for (i = 0; i < w; i += 18)
+    {
+        vga_draw_rectangle(x - 5 + i, y - 7, 10, 2, PT_WOOD_LIGHT);
+        vga_draw_rectangle(x - 4 + i, y + h + 5, 12, 2, PT_WOOD_DARK);
+        vga_draw_rectangle(x - 2 + i, y - 4, 5, 1, PT_CREAM);
+        vga_draw_rectangle(x + i, y + h + 3, 7, 1, PT_AMBER);
+    }
+    for (i = 0; i < h; i += 20)
+    {
+        vga_draw_rectangle(x - 7, y - 4 + i, 2, 12, PT_WOOD_LIGHT);
+        vga_draw_rectangle(x + w + 5, y - 2 + i, 2, 10, PT_WOOD_DARK);
+        vga_draw_rectangle(x - 4, y + 2 + i, 1, 6, PT_CREAM);
+        vga_draw_rectangle(x + w + 3, y + 4 + i, 1, 6, PT_AMBER);
+    }
 }
 
 void pt_draw_canvas_cell(int px, int py, int size, vga_color_t color)

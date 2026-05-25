@@ -1,6 +1,6 @@
 obj/default/debug.o: debug.c ../vga_bsp//HAL/inc/io.h \
  ../vga_bsp//HAL/inc/alt_types.h ../vga_bsp/system.h ../vga_bsp/linker.h \
- vga.h ../vga_bsp//HAL/inc/alt_types.h pixel_theme.h debug.h \
+ vga.h ../vga_bsp//HAL/inc/alt_types.h debug.h \
  ../vga_bsp//drivers/inc/altera_avalon_pio_regs.h
 
 ../vga_bsp//HAL/inc/io.h:
@@ -14,8 +14,6 @@ obj/default/debug.o: debug.c ../vga_bsp//HAL/inc/io.h \
 vga.h:
 
 ../vga_bsp//HAL/inc/alt_types.h:
-
-pixel_theme.h:
 
 debug.h:
 

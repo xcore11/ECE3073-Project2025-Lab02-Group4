@@ -64,7 +64,7 @@
 #define DRAW_STATUS_BAD_COLOR          2
 
 #define DRAW_GRID_X0                   64
-#define DRAW_GRID_Y0                   20
+#define DRAW_GRID_Y0                   34
 #define DRAW_GRID_W                    96
 #define DRAW_GRID_H                    96
 #define DRAW_CELL_SIZE                 2
@@ -405,14 +405,13 @@ void __attribute__((weak)) draw_game_init(void)
     time_draw_rx_indicator_state = -1;
 
     pt_draw_canvas_background();
-    pt_print_shadow(92, 8, "PIXEL STUDIO", PT_GRASS_LIGHT);
 
     time_draw_rx_indicator(0);
     time_draw_border();
     time_draw_full_grid();
 
     /* Draw this after the frame/grid so it is not hidden by the canvas shadow. */
-    pt_print_shadow(38, 222, "96X96 RGB332 LIVE CANVAS", PT_GOLD);
+    pt_print_shadow(112, 230, "96 X 96", PT_GOLD);
 
     time_shared_write32(DRAW_MB_READY, 0);
     time_shared_write32(DRAW_MB_ACK, 0);

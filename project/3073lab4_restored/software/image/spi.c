@@ -73,6 +73,44 @@
 static char spi_rx_text[TEXT_BUFFER_SIZE];
 static uint32_t latest_packet_length = 0;
 
+/*
+   VGA text queue stored at TEXT_BUFFER_BASE.
+
+   The old IMG->VGA text handoff used TEXT_BUFFER_BASE as one single latest
+   text buffer and FLAG_TEXT_READY_SHARED as just a changed counter. During
+   fast OCR/SPI streaming, IMG could overwrite the buffer several times before
+   VGA polled it, so the image console could print the correct packets while
+   the VGA panel displayed missing/mismatched fragments.
+
+   This ring queue fixes that producer/consumer race:
+   - IMG writes each text event into a fixed slot.
+   - IMG commits the slot by writing its sequence number last.
+   - IMG then publishes the sequence to FLAG_TEXT_READY_SHARED.
+   - VGA drains every slot from last_seq+1 up to the newest seq.
+
+   No mutex is needed because only IMG writes and only VGA reads. The 32-bit
+   slot sequence is the commit marker.
+*/
+#define TEXTQ_MAGIC_VALUE          0x31515854u  /* 'TXQ1' little-endian */
+#define TEXTQ_HEADER_BYTES         64u
+#define TEXTQ_SLOT_COUNT           30u
+#define TEXTQ_SLOT_BYTES           128u
+#define TEXTQ_SLOT_DATA_BYTES      112u  /* multiple of 8 DEBUG wire chars */
+
+#define TEXTQ_MAGIC_OFS            0u
+#define TEXTQ_WRITE_SEQ_OFS        4u
+#define TEXTQ_DROPPED_OFS          8u
+#define TEXTQ_SLOT_COUNT_OFS       12u
+#define TEXTQ_SLOT_BYTES_OFS       16u
+#define TEXTQ_LAST_LEN_OFS         20u
+#define TEXTQ_LAST_SLOT_OFS        24u
+
+#define TEXTQ_SLOTS_OFS            TEXTQ_HEADER_BYTES
+#define TEXTQ_SLOT_SEQ_OFS         0u
+#define TEXTQ_SLOT_LEN_OFS         4u
+#define TEXTQ_SLOT_FLAGS_OFS       8u
+#define TEXTQ_SLOT_DATA_OFS        12u
+
 /* Forward declarations. */
 static uint8_t sdram_read_packet_byte(uint32_t index);
 
@@ -109,21 +147,138 @@ static void sdram_write_status(uint32_t offset, uint32_t value)
     IOWR_32DIRECT(STATUS_REG_BASE, offset, value);
 }
 
-static void sdram_clear_text(void)
+static void sdram_clear_latest_text_shadow(void)
+{
+    uint32_t i;
+
+    for (i = 0; i < TEXT_BUFFER_SIZE; i++) {
+        spi_rx_text[i] = '\0';
+    }
+}
+
+static uint32_t textq_read_u32(uint32_t offset)
+{
+    return IORD_32DIRECT(TEXT_BUFFER_BASE, offset);
+}
+
+static void textq_write_u32(uint32_t offset, uint32_t value)
+{
+    IOWR_32DIRECT(TEXT_BUFFER_BASE, offset, value);
+}
+
+static void textq_write_u8(uint32_t offset, uint8_t value)
+{
+    IOWR_8DIRECT(TEXT_BUFFER_BASE, offset, value);
+}
+
+static uint32_t textq_slot_base(uint32_t slot_index)
+{
+    return TEXTQ_SLOTS_OFS + slot_index * TEXTQ_SLOT_BYTES;
+}
+
+static void sdram_init_text_queue(void)
 {
     uint32_t i;
 
     for (i = 0; i < TEXT_BUFFER_SIZE; i++) {
         IOWR_8DIRECT(TEXT_BUFFER_BASE, i, 0);
-        spi_rx_text[i] = '\0';
+    }
+
+    sdram_clear_latest_text_shadow();
+
+    textq_write_u32(TEXTQ_MAGIC_OFS, TEXTQ_MAGIC_VALUE);
+    textq_write_u32(TEXTQ_WRITE_SEQ_OFS, 0);
+    textq_write_u32(TEXTQ_DROPPED_OFS, 0);
+    textq_write_u32(TEXTQ_SLOT_COUNT_OFS, TEXTQ_SLOT_COUNT);
+    textq_write_u32(TEXTQ_SLOT_BYTES_OFS, TEXTQ_SLOT_BYTES);
+    textq_write_u32(TEXTQ_LAST_LEN_OFS, 0);
+    textq_write_u32(TEXTQ_LAST_SLOT_OFS, 0);
+
+    IOWR_32DIRECT(SHARED_FLAGS_BASE, FLAG_TEXT_READY_SHARED, 0);
+}
+
+static void textq_ensure_initialized(void)
+{
+    if (textq_read_u32(TEXTQ_MAGIC_OFS) != TEXTQ_MAGIC_VALUE ||
+        textq_read_u32(TEXTQ_SLOT_COUNT_OFS) != TEXTQ_SLOT_COUNT ||
+        textq_read_u32(TEXTQ_SLOT_BYTES_OFS) != TEXTQ_SLOT_BYTES) {
+        sdram_init_text_queue();
     }
 }
 
-static void sdram_store_text_from_packet(uint32_t text_src_offset, uint16_t text_len)
+static void textq_publish_chunk(const char *data, uint16_t len)
 {
+    uint32_t seq;
+    uint32_t slot_index;
+    uint32_t base;
     uint32_t i;
 
-    sdram_clear_text();
+    if (data == 0 || len == 0) {
+        return;
+    }
+
+    if (len > TEXTQ_SLOT_DATA_BYTES) {
+        len = TEXTQ_SLOT_DATA_BYTES;
+    }
+
+    textq_ensure_initialized();
+
+    seq = textq_read_u32(TEXTQ_WRITE_SEQ_OFS) + 1u;
+    if (seq == 0u) {
+        seq = 1u;
+    }
+
+    slot_index = (seq - 1u) % TEXTQ_SLOT_COUNT;
+    base = textq_slot_base(slot_index);
+
+    /* Invalidate slot while writing. VGA accepts it only after seq is written. */
+    textq_write_u32(base + TEXTQ_SLOT_SEQ_OFS, 0u);
+    textq_write_u32(base + TEXTQ_SLOT_LEN_OFS, (uint32_t)len);
+    textq_write_u32(base + TEXTQ_SLOT_FLAGS_OFS, 0u);
+
+    for (i = 0; i < TEXTQ_SLOT_DATA_BYTES; i++) {
+        uint8_t c = 0;
+        if (i < (uint32_t)len) {
+            c = (uint8_t)data[i];
+        }
+        textq_write_u8(base + TEXTQ_SLOT_DATA_OFS + i, c);
+    }
+
+    textq_write_u32(TEXTQ_LAST_LEN_OFS, (uint32_t)len);
+    textq_write_u32(TEXTQ_LAST_SLOT_OFS, slot_index);
+
+    /* Commit slot first, then publish the newest sequence. */
+    textq_write_u32(base + TEXTQ_SLOT_SEQ_OFS, seq);
+    textq_write_u32(TEXTQ_WRITE_SEQ_OFS, seq);
+    IOWR_32DIRECT(SHARED_FLAGS_BASE, FLAG_TEXT_READY_SHARED, seq);
+}
+
+static void textq_publish_text(const char *data, uint16_t len)
+{
+    uint16_t pos = 0;
+
+    if (data == 0 || len == 0) {
+        return;
+    }
+
+    while (pos < len) {
+        uint16_t chunk_len = (uint16_t)(len - pos);
+
+        if (chunk_len > TEXTQ_SLOT_DATA_BYTES) {
+            chunk_len = TEXTQ_SLOT_DATA_BYTES;
+        }
+
+        textq_publish_chunk(&data[pos], chunk_len);
+        pos = (uint16_t)(pos + chunk_len);
+    }
+}
+
+static uint16_t sdram_store_text_from_packet(uint32_t text_src_offset, uint16_t text_len)
+{
+    uint32_t i;
+    uint16_t actual_len = 0;
+
+    sdram_clear_latest_text_shadow();
 
     if (text_len >= TEXT_BUFFER_SIZE) {
         text_len = TEXT_BUFFER_SIZE - 1;
@@ -133,28 +288,62 @@ static void sdram_store_text_from_packet(uint32_t text_src_offset, uint16_t text
         char c = (char)sdram_read_packet_byte(text_src_offset + i);
 
         /*
+           Treat NUL as the real end of text, not as printable padded space.
+        */
+        if (c == '\0') {
+            break;
+        }
+
+        /*
            Store display-safe text while preserving instruction boundaries.
-           Arduino may send real '\n' between reconstructed DEBUG
-           instructions, and vga/debug.c uses those newlines to start a new
-           VGA text line.
         */
         if (c == '\r') {
             c = '\n';
-        } else if (c == '\0' || c == '\t') {
+        } else if (c == '\t') {
             c = ' ';
         } else if (c != '\n' && (c < 32 || c > 126)) {
             c = ' ';
         }
 
-        IOWR_8DIRECT(TEXT_BUFFER_BASE, i, (uint8_t)c);
-        spi_rx_text[i] = c;
+        spi_rx_text[actual_len] = c;
+        actual_len++;
     }
 
-    IOWR_8DIRECT(TEXT_BUFFER_BASE, text_len, 0);
-    spi_rx_text[text_len] = '\0';
+    /* Trim harmless trailing spaces from the publish length. VGA can still
+       pad 2..7 byte OCR slices back to 8 columns when it needs alignment. */
+    while (actual_len > 0 && spi_rx_text[actual_len - 1] == ' ') {
+        actual_len--;
+    }
 
-    sdram_write_status(STATUS_SPI_RX_COUNT, (uint32_t)text_len);
-    sdram_write_status(STATUS_TEXT_READY, text_len > 0 ? 1 : 0);
+    spi_rx_text[actual_len] = '\0';
+
+    sdram_write_status(STATUS_SPI_RX_COUNT, (uint32_t)actual_len);
+    sdram_write_status(STATUS_TEXT_READY, actual_len > 0 ? 1 : 0);
+
+    return actual_len;
+}
+
+static void sdram_store_status_text_len(uint16_t text_len)
+{
+    IOWR_8DIRECT(STATUS_BASE, 8, (uint8_t)(text_len & 0xFFu));
+    IOWR_8DIRECT(STATUS_BASE, 9, (uint8_t)((text_len >> 8) & 0xFFu));
+}
+
+static int text_should_publish_to_vga(uint16_t actual_text_len)
+{
+    /*
+       The VGA console proved the orphan-character problem starts before VGA:
+       packets are sometimes genuinely one-byte fragments such as "d", "h",
+       "z", "r". They are useful to neither the debug screen nor the control
+       decoder, and publishing them makes the VGA panel show first-character
+       garbage. Keep them in spi_rx_text for diagnostic prints, but do not
+       bump FLAG_TEXT_READY_SHARED for VGA display.
+    */
+    if (actual_text_len <= 1) {
+        return 0;
+    }
+
+    return 1;
 }
 
 static void sdram_store_packet_byte(uint32_t index, uint8_t value)
@@ -227,7 +416,7 @@ void spi_init_manual(void)
 
     latest_packet_length = 0;
 
-    sdram_clear_text();
+    sdram_init_text_queue();
     sdram_clear_packet_region(256);
     sdram_clear_status_header();
     sdram_clear_image_region(IMAGE_BUFFER_SIZE);
@@ -282,6 +471,7 @@ static int store_text_and_metadata_from_packet(uint32_t packet_len)
     uint32_t i;
     uint32_t total_len;
     uint16_t text_len;
+    uint16_t actual_text_len;
     uint16_t image_w;
     uint16_t image_h;
     uint16_t line_count;
@@ -334,9 +524,15 @@ static int store_text_and_metadata_from_packet(uint32_t packet_len)
     sdram_store_status_header_from_packet();
 
     /* Store received sentence into TEXT_BUFFER_BASE. */
-    sdram_store_text_from_packet(header_len, text_len);
+    actual_text_len = sdram_store_text_from_packet(header_len, text_len);
 
-    /* Store raw grayscale image into IMAGE_BUFFER_BASE.
+    /* Patch the VGA-facing header to the sanitized text length. The original
+       ESP text_len is still used above for packet validation, but VGA should
+       not draw trailing NUL padding or one-byte OCR noise as if it were a
+       complete row. */
+    sdram_store_status_text_len(actual_text_len);
+
+    /* Store raw RGB332 image into IMAGE_BUFFER_BASE.
        Text-only realtime debug packets must NOT clear the latest image,
        because the user may press KEY1 after capture to reuse it as draw BG. */
     if (image_len > 0) {
@@ -356,18 +552,28 @@ static int store_text_and_metadata_from_packet(uint32_t packet_len)
 
     sdram_write_status(STATUS_PACKET_READY, 1);
     sdram_write_status(STATUS_PACKET_LENGTH, packet_len);
-    sdram_write_status(STATUS_TEXT_LENGTH, text_len);
+    sdram_write_status(STATUS_TEXT_LENGTH, actual_text_len);
     sdram_write_status(STATUS_IMAGE_WIDTH, image_w);
     sdram_write_status(STATUS_IMAGE_HEIGHT, image_h);
     sdram_write_status(STATUS_LINE_COUNT, line_count);
     sdram_write_status(STATUS_IMAGE_LENGTH, image_len);
-    sdram_write_status(STATUS_LAST_ERROR, status == 1 ? 0 : status);
+    /* ESP currently marks a completed packet as status 2.
+       Older FPGA code treated only status 1 as success, which made every
+       valid ESP packet look like an error in STATUS_LAST_ERROR.
+       Accept both 1 and 2 as successful packet statuses. */
+    sdram_write_status(STATUS_LAST_ERROR, (status == 1 || status == 2) ? 0 : status);
 
-    /* Shared event counters for realtime VGA debug panel.
-       VGA debug polls these counters and appends new text / refreshes image. */
-    if (text_len > 0) {
-        uint32_t text_seq = IORD_32DIRECT(SHARED_FLAGS_BASE, FLAG_TEXT_READY_SHARED);
-        IOWR_32DIRECT(SHARED_FLAGS_BASE, FLAG_TEXT_READY_SHARED, text_seq + 1);
+    /*
+       Shared text publication for the VGA debug panel.
+       Do not expose TEXT_BUFFER_BASE as one overwritable latest-string buffer
+       anymore.  Publish into the TEXTQ ring so VGA can drain every text event
+       even if IMG receives several packets before the next VGA poll.
+    */
+    if (text_should_publish_to_vga(actual_text_len)) {
+        textq_publish_text(spi_rx_text, actual_text_len);
+    } else if (actual_text_len > 0) {
+        printf("VGA text publish skipped: one-character fragment [%s]\n", spi_rx_text);
+        fflush(stdout);
     }
 
     if (image_len > 0) {
@@ -407,6 +613,8 @@ static int store_text_and_metadata_from_packet(uint32_t packet_len)
 
 #define SPI_LENGTH_RETRY_COUNT      5
 #define SPI_LENGTH_RETRY_DELAY_US   20000
+#define SPI_PACKET_MAGIC_RETRY_COUNT 4
+#define SPI_PACKET_MAGIC_RETRY_DELAY_US 30000
 /*
    ESP32 DMA slave sometimes reports a valid length before the packet DMA
    buffer is fully queued. 10 ms still produced all-zero first packet bytes
@@ -512,6 +720,25 @@ static uint32_t spi_read_packet_length_once(void)
     return len;
 }
 
+static int spi_packet_sdram_has_valid_magic(void)
+{
+    return (sdram_read_packet_byte(0) == SPI_PACKET_MAGIC0 &&
+            sdram_read_packet_byte(1) == SPI_PACKET_MAGIC1);
+}
+
+static int spi_packet_sdram_is_all_zero_header(void)
+{
+    uint32_t i;
+
+    for (i = 0; i < 8; i++) {
+        if (sdram_read_packet_byte(i) != 0) {
+            return 0;
+        }
+    }
+
+    return 1;
+}
+
 static void spi_read_packet_bytes(uint32_t packet_len)
 {
     uint32_t padded_packet_len;
@@ -596,10 +823,25 @@ void spi_request_text_from_esp(void)
     }
 
     if (packet_len == 0) {
-        printf("SPI error: ESP_DATA_READY high but packet length is 0\n");
+        static uint32_t zero_len_count = 0;
+
+        zero_len_count++;
+
+        if ((zero_len_count % 20) == 1) {
+            printf("SPI waiting: ESP_DATA_READY high but length is 0; no abort, will retry later\n");
+        }
+
         sdram_write_status(STATUS_LAST_ERROR, 6);
         latest_packet_length = 0;
-        spi_abort_packet_on_esp();
+
+        /*
+           Realtime packet-queue mode:
+           Do NOT send 0xA3 here. The ESP uses 0xA3 as a hard queue reset.
+           During fast row streaming a temporary zero length can happen while
+           ESP is between DATA_READY boundaries or promoting the next packet.
+           Aborting here drops valid queued rows and makes VGA miss commands.
+        */
+        usleep(5000);
         return;
     }
 
@@ -632,8 +874,35 @@ void spi_request_text_from_esp(void)
         return;
     }
 
-    sdram_clear_packet_region(packet_len + SPI_PACKET_READ_EXTRA_BYTES);
-    spi_read_packet_bytes(packet_len);
+    for (attempt = 1; attempt <= SPI_PACKET_MAGIC_RETRY_COUNT; attempt++) {
+        sdram_clear_packet_region(packet_len + SPI_PACKET_READ_EXTRA_BYTES);
+        spi_read_packet_bytes(packet_len);
+
+        if (spi_packet_sdram_has_valid_magic()) {
+            break;
+        }
+
+        /*
+           A very common realtime DMA race looks like this in the log:
+               length = 32, then packet first bytes = 00 00 00 00 ...
+           That means ESP accepted the 0xA2 command but had not queued the
+           packet reply by the time FPGA started clocking.  Do not publish this
+           to VGA and do not send 0xA3; just wait and request the same queued
+           packet again.
+        */
+        if (spi_packet_sdram_is_all_zero_header()) {
+            printf("SPI retry: packet header was all zero after valid length, retry %lu/%u\n",
+                   (unsigned long)attempt,
+                   SPI_PACKET_MAGIC_RETRY_COUNT);
+        } else {
+            printf("SPI retry: packet magic not ready after valid length, retry %lu/%u\n",
+                   (unsigned long)attempt,
+                   SPI_PACKET_MAGIC_RETRY_COUNT);
+        }
+        fflush(stdout);
+
+        usleep(SPI_PACKET_MAGIC_RETRY_DELAY_US);
+    }
 
     if (!store_text_and_metadata_from_packet(packet_len)) {
         latest_packet_length = 0;

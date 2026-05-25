@@ -299,33 +299,40 @@ static int service_emergency_stop(void)
 static void update_menu_navigation(void)
 {
     int direction = read_menu_direction();
+    int previous_menu_index;
+
+    if (direction == 0)
+        return;
+
+    previous_menu_index = selected_menu_index;
 
     if (direction > 0)
     {
         selected_menu_index++;
         if (selected_menu_index >= MENU_ITEM_COUNT)
             selected_menu_index = 0;
-
-        trigger_sfx_flag(FLAG_SFX_CLICK);
-        shared_write_u32(FLAG_CURRENT_MENU, (uint32_t)selected_menu_index);
-        shared_write_u32(FLAG_VGA_DISPLAY_DONE, 0);
-        menu_draw(selected_menu_index);
-        shared_write_u32(FLAG_VGA_DISPLAY_DONE, 1);
-        usleep(MENU_MOVE_DELAY_US);
     }
-    else if (direction < 0)
+    else
     {
         selected_menu_index--;
         if (selected_menu_index < 0)
             selected_menu_index = MENU_ITEM_COUNT - 1;
-
-        trigger_sfx_flag(FLAG_SFX_CLICK);
-        shared_write_u32(FLAG_CURRENT_MENU, (uint32_t)selected_menu_index);
-        shared_write_u32(FLAG_VGA_DISPLAY_DONE, 0);
-        menu_draw(selected_menu_index);
-        shared_write_u32(FLAG_VGA_DISPLAY_DONE, 1);
-        usleep(MENU_MOVE_DELAY_US);
     }
+
+    trigger_sfx_flag(FLAG_SFX_CLICK);
+    shared_write_u32(FLAG_CURRENT_MENU, (uint32_t)selected_menu_index);
+
+    /*
+       Dynamic menu switching: only repaint the old and new game option rows.
+       The old code called menu_draw() here, which repainted the full background,
+       title and platforms on every tilt step. On VGA this looks like the whole
+       screen is refreshing/blinking.
+    */
+    shared_write_u32(FLAG_VGA_DISPLAY_DONE, 0);
+    menu_update_selection(previous_menu_index, selected_menu_index);
+    shared_write_u32(FLAG_VGA_DISPLAY_DONE, 1);
+
+    usleep(MENU_MOVE_DELAY_US);
 }
 
 static void enter_screen(int next_screen)

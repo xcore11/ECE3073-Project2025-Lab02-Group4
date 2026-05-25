@@ -540,14 +540,14 @@ static void draw_static_frame(void)
     pt_draw_battle_background();
 
     /* Left ocean frame. Draw once, not every update. */
-    pt_draw_battle_board_backplate(10, 10, 174, 220);
+    pt_draw_battle_board_backplate(2, 10, 184, 220);
 
     /* Push the logo upward so it no longer covers the X-axis labels. */
     pt_print_shadow(34, 2, "SEA RAIDERS", PT_GOLD);
     pt_print_shadow(66, 14, "COVE", PT_CREAM);
 
     /* Board backplate. */
-    pt_draw_battle_board_backplate(BOARD_X0 - 5, BOARD_Y0 - 5, BOARD_W_PX + 10, BOARD_H_PX + 10);
+    pt_draw_battle_board_backplate(BOARD_X0 - 12, BOARD_Y0 - 5, BOARD_W_PX + 17, BOARD_H_PX + 10);
 
     /* Grid labels. */
     for (x = 0; x < BATTLE_W; x++)
@@ -561,9 +561,9 @@ static void draw_static_frame(void)
     for (y = 0; y < BATTLE_H; y++)
     {
         char s[2];
-        s[0] = (char)('0' + y);
+        s[0] = (char)('A' + y);
         s[1] = '\0';
-        vga_print_software_text(BOARD_X0 - 14, cell_top(y) + 4, s, PT_GOLD);
+        vga_print_software_text(BOARD_X0 - 17, cell_top(y) + 4, s, PT_GOLD);
     }
 
     /* Decorative ship fills the lower empty area under the board. */
