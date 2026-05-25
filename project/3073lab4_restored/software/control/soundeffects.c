@@ -29,6 +29,8 @@
 #define SFX_RTOS_MIN_HALF_TICKS 1u
 #define SFX_RTOS_YIELD_TICKS    1u
 
+extern volatile int GPIO_state;
+
 void sound_init(void)
 {
     play_speaker(0, 0);
@@ -134,6 +136,12 @@ void sfx_explosion(void)
     int i;
     int rumble;
 
+
+	#ifdef PIO_GPIO_BASE
+		GPIO_state = GPIO_state | 0x1;
+		IOWR_ALTERA_AVALON_PIO_DATA(PIO_GPIO_BASE, GPIO_state);
+	#endif
+
     for (i = 0; i < 8; i++) {
         int noise_freq = 120 + (rand() % 520);
         uint32_t step_duration = 18000u + (uint32_t)(rand() % 18000);
@@ -145,6 +153,11 @@ void sfx_explosion(void)
     }
 
     speaker_force_off();
+
+	#ifdef PIO_GPIO_BASE
+		GPIO_state = GPIO_state & ~0x1;
+		IOWR_ALTERA_AVALON_PIO_DATA(PIO_GPIO_BASE, GPIO_state);
+	#endif
 }
 
 void sfx_portal(void)
