@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include "shared_memory.h"
+#include "decoderdebug.h"
 #include "spi.h"
 
 /* =========================
@@ -56,7 +57,7 @@
    [16..19] image length
    [20..21] header length
    [22..23] flags
-   [24..]   text bytes, then grayscale image bytes
+   [24..]   text bytes, then 96x96 RGB332 image bytes
 */
 #define SPI_PACKET_HEADER_SIZE  24
 #define SPI_PACKET_MAGIC0       'G'
@@ -72,44 +73,6 @@
 
 static char spi_rx_text[TEXT_BUFFER_SIZE];
 static uint32_t latest_packet_length = 0;
-
-/*
-   VGA text queue stored at TEXT_BUFFER_BASE.
-
-   The old IMG->VGA text handoff used TEXT_BUFFER_BASE as one single latest
-   text buffer and FLAG_TEXT_READY_SHARED as just a changed counter. During
-   fast OCR/SPI streaming, IMG could overwrite the buffer several times before
-   VGA polled it, so the image console could print the correct packets while
-   the VGA panel displayed missing/mismatched fragments.
-
-   This ring queue fixes that producer/consumer race:
-   - IMG writes each text event into a fixed slot.
-   - IMG commits the slot by writing its sequence number last.
-   - IMG then publishes the sequence to FLAG_TEXT_READY_SHARED.
-   - VGA drains every slot from last_seq+1 up to the newest seq.
-
-   No mutex is needed because only IMG writes and only VGA reads. The 32-bit
-   slot sequence is the commit marker.
-*/
-#define TEXTQ_MAGIC_VALUE          0x31515854u  /* 'TXQ1' little-endian */
-#define TEXTQ_HEADER_BYTES         64u
-#define TEXTQ_SLOT_COUNT           30u
-#define TEXTQ_SLOT_BYTES           128u
-#define TEXTQ_SLOT_DATA_BYTES      112u  /* multiple of 8 DEBUG wire chars */
-
-#define TEXTQ_MAGIC_OFS            0u
-#define TEXTQ_WRITE_SEQ_OFS        4u
-#define TEXTQ_DROPPED_OFS          8u
-#define TEXTQ_SLOT_COUNT_OFS       12u
-#define TEXTQ_SLOT_BYTES_OFS       16u
-#define TEXTQ_LAST_LEN_OFS         20u
-#define TEXTQ_LAST_SLOT_OFS        24u
-
-#define TEXTQ_SLOTS_OFS            TEXTQ_HEADER_BYTES
-#define TEXTQ_SLOT_SEQ_OFS         0u
-#define TEXTQ_SLOT_LEN_OFS         4u
-#define TEXTQ_SLOT_FLAGS_OFS       8u
-#define TEXTQ_SLOT_DATA_OFS        12u
 
 /* Forward declarations. */
 static uint8_t sdram_read_packet_byte(uint32_t index);
@@ -147,130 +110,31 @@ static void sdram_write_status(uint32_t offset, uint32_t value)
     IOWR_32DIRECT(STATUS_REG_BASE, offset, value);
 }
 
-static void sdram_clear_latest_text_shadow(void)
-{
-    uint32_t i;
-
-    for (i = 0; i < TEXT_BUFFER_SIZE; i++) {
-        spi_rx_text[i] = '\0';
-    }
-}
-
-static uint32_t textq_read_u32(uint32_t offset)
-{
-    return IORD_32DIRECT(TEXT_BUFFER_BASE, offset);
-}
-
-static void textq_write_u32(uint32_t offset, uint32_t value)
-{
-    IOWR_32DIRECT(TEXT_BUFFER_BASE, offset, value);
-}
-
-static void textq_write_u8(uint32_t offset, uint8_t value)
-{
-    IOWR_8DIRECT(TEXT_BUFFER_BASE, offset, value);
-}
-
-static uint32_t textq_slot_base(uint32_t slot_index)
-{
-    return TEXTQ_SLOTS_OFS + slot_index * TEXTQ_SLOT_BYTES;
-}
-
-static void sdram_init_text_queue(void)
+static void sdram_clear_text(void)
 {
     uint32_t i;
 
     for (i = 0; i < TEXT_BUFFER_SIZE; i++) {
         IOWR_8DIRECT(TEXT_BUFFER_BASE, i, 0);
-    }
-
-    sdram_clear_latest_text_shadow();
-
-    textq_write_u32(TEXTQ_MAGIC_OFS, TEXTQ_MAGIC_VALUE);
-    textq_write_u32(TEXTQ_WRITE_SEQ_OFS, 0);
-    textq_write_u32(TEXTQ_DROPPED_OFS, 0);
-    textq_write_u32(TEXTQ_SLOT_COUNT_OFS, TEXTQ_SLOT_COUNT);
-    textq_write_u32(TEXTQ_SLOT_BYTES_OFS, TEXTQ_SLOT_BYTES);
-    textq_write_u32(TEXTQ_LAST_LEN_OFS, 0);
-    textq_write_u32(TEXTQ_LAST_SLOT_OFS, 0);
-
-    IOWR_32DIRECT(SHARED_FLAGS_BASE, FLAG_TEXT_READY_SHARED, 0);
-}
-
-static void textq_ensure_initialized(void)
-{
-    if (textq_read_u32(TEXTQ_MAGIC_OFS) != TEXTQ_MAGIC_VALUE ||
-        textq_read_u32(TEXTQ_SLOT_COUNT_OFS) != TEXTQ_SLOT_COUNT ||
-        textq_read_u32(TEXTQ_SLOT_BYTES_OFS) != TEXTQ_SLOT_BYTES) {
-        sdram_init_text_queue();
+        spi_rx_text[i] = '\0';
     }
 }
 
-static void textq_publish_chunk(const char *data, uint16_t len)
+static void sdram_hide_text_from_vga(void)
 {
-    uint32_t seq;
-    uint32_t slot_index;
-    uint32_t base;
     uint32_t i;
 
-    if (data == 0 || len == 0) {
-        return;
+    /* Clear only the VGA-facing SDRAM text buffer. Keep spi_rx_text intact so
+       image/main.c can still pass the packet text to decoderdebug.c. */
+    for (i = 0; i < TEXT_BUFFER_SIZE; i++) {
+        IOWR_8DIRECT(TEXT_BUFFER_BASE, i, 0);
     }
 
-    if (len > TEXTQ_SLOT_DATA_BYTES) {
-        len = TEXTQ_SLOT_DATA_BYTES;
-    }
-
-    textq_ensure_initialized();
-
-    seq = textq_read_u32(TEXTQ_WRITE_SEQ_OFS) + 1u;
-    if (seq == 0u) {
-        seq = 1u;
-    }
-
-    slot_index = (seq - 1u) % TEXTQ_SLOT_COUNT;
-    base = textq_slot_base(slot_index);
-
-    /* Invalidate slot while writing. VGA accepts it only after seq is written. */
-    textq_write_u32(base + TEXTQ_SLOT_SEQ_OFS, 0u);
-    textq_write_u32(base + TEXTQ_SLOT_LEN_OFS, (uint32_t)len);
-    textq_write_u32(base + TEXTQ_SLOT_FLAGS_OFS, 0u);
-
-    for (i = 0; i < TEXTQ_SLOT_DATA_BYTES; i++) {
-        uint8_t c = 0;
-        if (i < (uint32_t)len) {
-            c = (uint8_t)data[i];
-        }
-        textq_write_u8(base + TEXTQ_SLOT_DATA_OFS + i, c);
-    }
-
-    textq_write_u32(TEXTQ_LAST_LEN_OFS, (uint32_t)len);
-    textq_write_u32(TEXTQ_LAST_SLOT_OFS, slot_index);
-
-    /* Commit slot first, then publish the newest sequence. */
-    textq_write_u32(base + TEXTQ_SLOT_SEQ_OFS, seq);
-    textq_write_u32(TEXTQ_WRITE_SEQ_OFS, seq);
-    IOWR_32DIRECT(SHARED_FLAGS_BASE, FLAG_TEXT_READY_SHARED, seq);
-}
-
-static void textq_publish_text(const char *data, uint16_t len)
-{
-    uint16_t pos = 0;
-
-    if (data == 0 || len == 0) {
-        return;
-    }
-
-    while (pos < len) {
-        uint16_t chunk_len = (uint16_t)(len - pos);
-
-        if (chunk_len > TEXTQ_SLOT_DATA_BYTES) {
-            chunk_len = TEXTQ_SLOT_DATA_BYTES;
-        }
-
-        textq_publish_chunk(&data[pos], chunk_len);
-        pos = (uint16_t)(pos + chunk_len);
-    }
+    sdram_write_status(STATUS_TEXT_READY, 0);
+    sdram_write_status(STATUS_TEXT_LENGTH, 0);
+    sdram_write_status(STATUS_SPI_RX_COUNT, 0);
+    IOWR_8DIRECT(STATUS_BASE, 8, 0);
+    IOWR_8DIRECT(STATUS_BASE, 9, 0);
 }
 
 static uint16_t sdram_store_text_from_packet(uint32_t text_src_offset, uint16_t text_len)
@@ -278,7 +142,7 @@ static uint16_t sdram_store_text_from_packet(uint32_t text_src_offset, uint16_t 
     uint32_t i;
     uint16_t actual_len = 0;
 
-    sdram_clear_latest_text_shadow();
+    sdram_clear_text();
 
     if (text_len >= TEXT_BUFFER_SIZE) {
         text_len = TEXT_BUFFER_SIZE - 1;
@@ -288,7 +152,10 @@ static uint16_t sdram_store_text_from_packet(uint32_t text_src_offset, uint16_t 
         char c = (char)sdram_read_packet_byte(text_src_offset + i);
 
         /*
-           Treat NUL as the real end of text, not as printable padded space.
+           Treat NUL as the real end of text, not as a printable padded space.
+           The ESP/debug stream can occasionally send packets such as
+           "ond\0\0\0\0" with text_len=7. If VGA is told to draw all 7
+           bytes, the tail becomes unstable spacing / stale characters.
         */
         if (c == '\0') {
             break;
@@ -296,6 +163,9 @@ static uint16_t sdram_store_text_from_packet(uint32_t text_src_offset, uint16_t 
 
         /*
            Store display-safe text while preserving instruction boundaries.
+           Arduino may send real '\n' between reconstructed DEBUG
+           instructions, and vga/debug.c uses those newlines to start a new
+           VGA text line.
         */
         if (c == '\r') {
             c = '\n';
@@ -305,16 +175,14 @@ static uint16_t sdram_store_text_from_packet(uint32_t text_src_offset, uint16_t 
             c = ' ';
         }
 
+        IOWR_8DIRECT(TEXT_BUFFER_BASE, actual_len, (uint8_t)c);
         spi_rx_text[actual_len] = c;
         actual_len++;
     }
 
-    /* Trim harmless trailing spaces from the publish length. VGA can still
-       pad 2..7 byte OCR slices back to 8 columns when it needs alignment. */
-    while (actual_len > 0 && spi_rx_text[actual_len - 1] == ' ') {
-        actual_len--;
-    }
-
+    /* Keep one real trailing space when Arduino adds it as a DEBUG row
+       boundary. Without this, VGA can display rows like BLINKINGEVERY. */
+    IOWR_8DIRECT(TEXT_BUFFER_BASE, actual_len, 0);
     spi_rx_text[actual_len] = '\0';
 
     sdram_write_status(STATUS_SPI_RX_COUNT, (uint32_t)actual_len);
@@ -331,15 +199,25 @@ static void sdram_store_status_text_len(uint16_t text_len)
 
 static int text_should_publish_to_vga(uint16_t actual_text_len)
 {
+    uint16_t i;
+    uint16_t non_space = 0;
+
     /*
        The VGA console proved the orphan-character problem starts before VGA:
        packets are sometimes genuinely one-byte fragments such as "d", "h",
-       "z", "r". They are useful to neither the debug screen nor the control
-       decoder, and publishing them makes the VGA panel show first-character
-       garbage. Keep them in spi_rx_text for diagnostic prints, but do not
-       bump FLAG_TEXT_READY_SHARED for VGA display.
+       "z", "r". Arduino may now append one row-boundary space, so judge by
+       non-space characters rather than raw length.
     */
-    if (actual_text_len <= 1) {
+    for (i = 0; i < actual_text_len && spi_rx_text[i] != '\0'; i++) {
+        if (spi_rx_text[i] != ' ' &&
+            spi_rx_text[i] != '\n' &&
+            spi_rx_text[i] != '\r' &&
+            spi_rx_text[i] != '\t') {
+            non_space++;
+        }
+    }
+
+    if (non_space <= 1) {
         return 0;
     }
 
@@ -416,7 +294,7 @@ void spi_init_manual(void)
 
     latest_packet_length = 0;
 
-    sdram_init_text_queue();
+    sdram_clear_text();
     sdram_clear_packet_region(256);
     sdram_clear_status_header();
     sdram_clear_image_region(IMAGE_BUFFER_SIZE);
@@ -527,10 +405,15 @@ static int store_text_and_metadata_from_packet(uint32_t packet_len)
     actual_text_len = sdram_store_text_from_packet(header_len, text_len);
 
     /* Patch the VGA-facing header to the sanitized text length. The original
-       ESP text_len is still used above for packet validation, but VGA should
-       not draw trailing NUL padding or one-byte OCR noise as if it were a
-       complete row. */
+       ESP text_len is still used above for packet validation. */
     sdram_store_status_text_len(actual_text_len);
+
+    if (decoder_debug_should_hide_vga_text(spi_rx_text, actual_text_len)) {
+        printf("VGA text publish skipped: duplicated duration tail [%s]\n", spi_rx_text);
+        fflush(stdout);
+        sdram_hide_text_from_vga();
+        actual_text_len = 0;
+    }
 
     /* Store raw RGB332 image into IMAGE_BUFFER_BASE.
        Text-only realtime debug packets must NOT clear the latest image,
@@ -563,14 +446,11 @@ static int store_text_and_metadata_from_packet(uint32_t packet_len)
        Accept both 1 and 2 as successful packet statuses. */
     sdram_write_status(STATUS_LAST_ERROR, (status == 1 || status == 2) ? 0 : status);
 
-    /*
-       Shared text publication for the VGA debug panel.
-       Do not expose TEXT_BUFFER_BASE as one overwritable latest-string buffer
-       anymore.  Publish into the TEXTQ ring so VGA can drain every text event
-       even if IMG receives several packets before the next VGA poll.
-    */
+    /* Shared event counters for realtime VGA debug panel.
+       VGA debug polls these counters and appends new text / refreshes image. */
     if (text_should_publish_to_vga(actual_text_len)) {
-        textq_publish_text(spi_rx_text, actual_text_len);
+        uint32_t text_seq = IORD_32DIRECT(SHARED_FLAGS_BASE, FLAG_TEXT_READY_SHARED);
+        IOWR_32DIRECT(SHARED_FLAGS_BASE, FLAG_TEXT_READY_SHARED, text_seq + 1);
     } else if (actual_text_len > 0) {
         printf("VGA text publish skipped: one-character fragment [%s]\n", spi_rx_text);
         fflush(stdout);
@@ -605,7 +485,7 @@ static int store_text_and_metadata_from_packet(uint32_t packet_len)
 #define SPI_CMD_PANEL_DRAW          0xD2
 #define SPI_CMD_PANEL_MENU          0xD3
 #define SPI_CMD_PANEL_BATTLE        0xD5
-#define SPI_CMD_DEBUG_CAPTURE_IMAGE 0xD4
+#define SPI_CMD_DEBUG_CAPTURE_IMAGE     0xD4
 
 #define SPI_COMMAND_BYTES           4
 #define SPI_LEN_READ_BYTES          8
@@ -670,7 +550,7 @@ void spi_send_panel_mode(uint32_t panel_mode)
 
 void spi_send_debug_image_capture(void)
 {
-    printf("SPI debug: sending 0xD4 debug image capture command to ESP\n");
+    printf("SPI debug: sending 0x%02X debug RGB332 image capture command to ESP",SPI_CMD_DEBUG_CAPTURE_IMAGE);
     fflush(stdout);
 
     spi_send_command4(SPI_CMD_DEBUG_CAPTURE_IMAGE);

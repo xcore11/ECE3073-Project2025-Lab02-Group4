@@ -3,6 +3,7 @@
 #include <ESP32DMASPISlave.h>
 #include <JPEGDecoder.h>
 #include <vector>
+#include <freertos/semphr.h>
 
 SSCMA AI;
 
@@ -160,8 +161,25 @@ volatile bool captureActive = false;
 volatile bool sessionStarted = false;
 
 /* IMG sends 0xD4 when user presses KEY0 in the debug panel.
-   Main loop consumes this flag and captures one image packet. */
+   Main loop consumes this flag and captures one fresh JPEG snapshot.
+   The heavier JPEG -> RGB332 conversion can then run in the image worker task. */
 volatile bool debugImageCaptureRequested = false;
+
+/*
+   Optional background image decode test path.
+
+   Safe ownership rule:
+   - main loop is still the only place that touches AI.invoke() / AI.last_image()
+   - image worker only decodes the copied JPEG string using JPEGDecoder
+   - SPI packet queue owns the actual outgoing packet transfer
+*/
+TaskHandle_t imageWorkerTaskHandle = NULL;
+SemaphoreHandle_t imageWorkerMutex = NULL;
+volatile bool imageWorkerJobPending = false;
+volatile bool imageWorkerBusy = false;
+String imageWorkerJpegBase64 = "";
+uint8_t imageWorkerRgb332[GRAY_BYTES] = {0};
+uint8_t imageWorkerPacketScratch[PACKET_HEADER_LEN + GRAY_BYTES] = {0};
 
 
 /* =========================
@@ -442,6 +460,12 @@ String cleanSlottedText(String s);
 void resetDrawMicroBatch();
 bool flushDrawMicroBatch(bool force, const char *reason);
 bool queueTextPacketForSpi(const String &packetText, const char *reason);
+bool queueBackgroundImageDecodeJob(const String &jpegBase64);
+bool imageBackgroundDecodeActive();
+bool decodeJpegBase64ToRgb332Buffer(String jpegBase64, uint8_t *outRgb332);
+bool queueRgb332ImagePacketForSpi(const uint8_t *rgb332Payload, const char *reason);
+bool queueNoImagePacketForSpi(const char *reason);
+void imageDecodeWorkerTask(void *param);
 
 /*
    These globals are defined later with the row tracker state. The micro-batch
@@ -872,6 +896,7 @@ void sendRealtimeRowText(const String &text, int rowY, const char *reason)
 
 bool isUsefulSnakeRowText(const String &text);
 bool isPortalDuplicateBypassRowText(const String &text);
+bool isDurationUnitDuplicateBypassRowText(const String &text);
 bool isRealtimePanelMode();
 int activeSlotCount();
 const char *panelModeName(int mode);
@@ -1888,6 +1913,41 @@ bool isPortalDuplicateBypassRowText(const String &text)
     return false;
 }
 
+bool isDurationUnitDuplicateBypassRowText(const String &text)
+{
+    /*
+       DEBUG menu duration-unit rows must be allowed through the ESP row-order
+       duplicate guard.
+
+       Example with two instructions on screen:
+           LED MODULE BLINKING EVERY 5 SEC
+           SET SPEAKER FREQ TO 50 HZ FOR 1 SEC
+
+       Both rows can OCR as the exact same standalone text "sec" in the same
+       pass. If the Arduino pending/recent duplicate guard drops the second one,
+       the image processor/VGA never receives it, so the decoder cannot complete
+       the second instruction.
+
+       We only bypass for standalone duration-unit rows; duplicate cleanup for a
+       loose extra SEC tail is handled later on the image/decoder side, where it
+       has instruction context.
+    */
+    String n = normalizeRowForCompare(text);
+
+    if (n == "sec" || n == "secs" ||
+        n == "second" || n == "seconds") {
+        return true;
+    }
+
+    /* Common OCR variants for SEC. */
+    if (n == "5ec" || n == "s3c" || n == "se" ||
+        n == "scc" || n == "secx" || n == "sccs") {
+        return true;
+    }
+
+    return false;
+}
+
 bool sameExactRowText(const String &aText, const String &bText)
 {
     return aText == bText;
@@ -2078,7 +2138,9 @@ void queueFrozenRowForOrderedSend(int trackerIndex, String finalRowText)
            7x2y8x2y
            3x3y4x3y
     */
-    bool bypassDuplicateGuard = isPortalDuplicateBypassRowText(finalRowText);
+    bool bypassPortalDuplicateGuard = isPortalDuplicateBypassRowText(finalRowText);
+    bool bypassDurationDuplicateGuard = isDurationUnitDuplicateBypassRowText(finalRowText);
+    bool bypassDuplicateGuard = bypassPortalDuplicateGuard || bypassDurationDuplicateGuard;
 
     if (!bypassDuplicateGuard && pendingQueueAlreadyHasExactRow(finalRowText)) {
         Serial.print("[ROW ORDER] pending exact duplicate ignored text=[");
@@ -2094,8 +2156,14 @@ void queueFrozenRowForOrderedSend(int trackerIndex, String finalRowText)
         return;
     }
 
-    if (bypassDuplicateGuard) {
+    if (bypassPortalDuplicateGuard) {
         Serial.print("[ROW ORDER] portal row bypass duplicate guard text=[");
+        Serial.print(finalRowText);
+        Serial.println("]");
+    }
+
+    if (bypassDurationDuplicateGuard) {
+        Serial.print("[ROW ORDER] duration-unit row bypass duplicate guard text=[");
         Serial.print(finalRowText);
         Serial.println("]");
     }
@@ -2796,34 +2864,81 @@ std::vector<uint8_t> base64DecodeToBytes(String s)
    Image capture / decode
    ========================= */
 
+bool trimDecodedJpegToValidMarkers(std::vector<uint8_t> &jpegBytes)
+{
+    if (jpegBytes.size() < 4) {
+        return false;
+    }
+
+    size_t start = 0;
+    while ((start + 1) < jpegBytes.size()) {
+        if (jpegBytes[start] == 0xFF && jpegBytes[start + 1] == 0xD8) {
+            break;
+        }
+        start++;
+    }
+
+    if ((start + 1) >= jpegBytes.size()) {
+        return false;
+    }
+
+    size_t end = 0;
+    bool foundEnd = false;
+    for (size_t i = jpegBytes.size(); i > start + 1; i--) {
+        if (jpegBytes[i - 2] == 0xFF && jpegBytes[i - 1] == 0xD9) {
+            end = i;
+            foundEnd = true;
+            break;
+        }
+    }
+
+    if (!foundEnd || end <= start + 2) {
+        return false;
+    }
+
+    if (start != 0 || end != jpegBytes.size()) {
+        std::vector<uint8_t> trimmed(jpegBytes.begin() + start, jpegBytes.begin() + end);
+        jpegBytes.swap(trimmed);
+    }
+
+    return true;
+}
+
 void storeCurrentJpegString(const char *reason)
 {
 #if ENABLE_IMAGE_CAPTURE
     /*
-       This is intentionally called only at capture start and once after
-       more than 4 rows are stored. JPEG decoding is NOT done here.
+       Take one fresh image-enabled invoke and only trust AI.last_image()
+       from that invoke. This avoids reusing stale/partially-updated JPEG
+       data from normal OCR frames, which can corrupt the lower part of the
+       decoded image while the top still looks correct.
     */
-    Serial.print("[IMG] store JPEG string only: ");
+    Serial.print("[IMG] fresh image invoke for JPEG string: ");
     Serial.println(reason);
 
-    String img = AI.last_image();
+    storedJpegBase64 = "";
+    String img = "";
 
-    if (img.length() == 0) {
-        /*
-           If last_image() is empty, request one image frame once.
-           This is the only heavy image operation during capture.
-        */
+    for (int attempt = 1; attempt <= 2 && img.length() == 0; attempt++) {
+        Serial.print("[IMG] AI.invoke image attempt=");
+        Serial.println(attempt);
+
         if (!AI.invoke(1, false, true)) {
+            delay(20);
             img = AI.last_image();
+            img.replace("\r", "");
+            img.replace("\n", "");
+        } else {
+            delay(20);
         }
     }
 
     if (img.length() > 0) {
         storedJpegBase64 = img;
-        Serial.print("[IMG] stored JPEG chars=");
+        Serial.print("[IMG] fresh JPEG chars=");
         Serial.println(storedJpegBase64.length());
     } else {
-        Serial.println("[IMG] no JPEG available yet");
+        Serial.println("[IMG] no fresh JPEG available");
     }
 #else
     (void)reason;
@@ -2856,6 +2971,12 @@ bool decodeStoredJpegToGray96()
 
     if (jpegBytes.empty()) {
         Serial.println("[IMG] base64 decode failed");
+        storedJpegBase64 = "";
+        return false;
+    }
+
+    if (!trimDecodedJpegToValidMarkers(jpegBytes)) {
+        Serial.println("[IMG] valid JPEG SOI/EOI markers not found");
         storedJpegBase64 = "";
         return false;
     }
@@ -2978,7 +3099,7 @@ void captureDebugImagePacketNow(void)
         return;
     }
 
-    Serial.println("[IMG CAPTURE] capturing one debug image now");
+    Serial.println("[IMG CAPTURE] capturing one fresh RGB332 snapshot; JPEG decode will run in background worker");
 
     latestPassageText = "";
     passageReadyForSpi = false;
@@ -2989,23 +3110,23 @@ void captureDebugImagePacketNow(void)
        Do NOT clear frozenPassageRowCount / row trackers here.
        KEY0 image capture should be an image-side action only; clearing OCR
        state caused following debug text to look truncated/recalibrated.
+
+       This version still takes the fresh AI image in the main loop because
+       SSCMA / AI.last_image() ownership is not thread-safe. Only the heavy
+       base64/JPEGDecoder/RGB332 conversion is moved to the background worker.
     */
     storeCurrentJpegString("KEY0 debug manual image capture");
 
-    if (decodeStoredJpegToGray96()) {
-        latestPassageText = "";
-        buildFinalPacket();
-        Serial.println("[IMG CAPTURE] image packet queued for FPGA");
+    if (storedJpegBase64.length() > 0 && queueBackgroundImageDecodeJob(storedJpegBase64)) {
+        storedJpegBase64 = "";
+        Serial.println("[IMG CAPTURE] fresh JPEG handed to background RGB332 worker; OCR loop can resume");
     } else {
-        latestPassageText = "NOIMAGE";
-        latestGrayImageValid = false;
-        buildFinalPacket();
-        Serial.println("[IMG CAPTURE] image capture failed, NOIMAGE text packet queued");
+        storedJpegBase64 = "";
+        queueNoImagePacketForSpi("background-worker-busy-or-no-jpeg");
+        Serial.println("[IMG CAPTURE] image capture failed/busy, NOIMAGE text packet queued");
     }
 #else
-    latestPassageText = "NOIMAGE";
-    latestGrayImageValid = false;
-    buildFinalPacket();
+    queueNoImagePacketForSpi("image-capture-disabled");
 #endif
 }
 
@@ -3039,7 +3160,16 @@ void finalizeCapture()
     Serial.println();
 
 #if ENABLE_IMAGE_CAPTURE
-    decodeStoredJpegToGray96();
+    if (imageBackgroundDecodeActive()) {
+        /*
+           The background KEY0 image worker owns JPEGDecoder right now.
+           Do not run the old finalization image decode at the same time.
+        */
+        latestGrayImageValid = false;
+        Serial.println("[IMG] finalize skipped stored JPEG decode because background image worker is active");
+    } else {
+        decodeStoredJpegToGray96();
+    }
 #else
     latestGrayImageValid = false;
 #endif
@@ -3211,6 +3341,316 @@ bool buildFinalPacket()
 
     return true;
 }
+
+
+bool imageBackgroundDecodeActive()
+{
+    bool active = false;
+
+    if (imageWorkerMutex == NULL) {
+        return imageWorkerBusy || imageWorkerJobPending;
+    }
+
+    if (xSemaphoreTake(imageWorkerMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
+        active = imageWorkerBusy || imageWorkerJobPending;
+        xSemaphoreGive(imageWorkerMutex);
+    } else {
+        active = true;
+    }
+
+    return active;
+}
+
+bool queueBackgroundImageDecodeJob(const String &jpegBase64)
+{
+#if ENABLE_IMAGE_CAPTURE
+    if (jpegBase64.length() == 0) {
+        return false;
+    }
+
+    if (imageWorkerMutex == NULL) {
+        Serial.println("[IMG WORKER] mutex not ready");
+        return false;
+    }
+
+    bool ok = false;
+
+    if (xSemaphoreTake(imageWorkerMutex, pdMS_TO_TICKS(50)) == pdTRUE) {
+        if (!imageWorkerJobPending && !imageWorkerBusy) {
+            imageWorkerJpegBase64 = jpegBase64;
+            imageWorkerJobPending = true;
+            ok = true;
+        }
+        xSemaphoreGive(imageWorkerMutex);
+    }
+
+    if (!ok) {
+        Serial.println("[IMG WORKER] busy, cannot accept new image job");
+    }
+
+    return ok;
+#else
+    (void)jpegBase64;
+    return false;
+#endif
+}
+
+bool decodeJpegBase64ToRgb332Buffer(String jpegBase64, uint8_t *outRgb332)
+{
+#if ENABLE_IMAGE_CAPTURE
+    if (outRgb332 == NULL) {
+        return false;
+    }
+
+    memset(outRgb332, 0, GRAY_BYTES);
+
+    if (jpegBase64.length() == 0) {
+        Serial.println("[IMG WORKER] no JPEG string to decode");
+        return false;
+    }
+
+    Serial.println("[IMG WORKER] background decode JPEG -> direct 96x96 RGB332 now");
+
+    std::vector<uint8_t> jpegBytes = base64DecodeToBytes(jpegBase64);
+
+    if (jpegBytes.empty()) {
+        Serial.println("[IMG WORKER] base64 decode failed");
+        return false;
+    }
+
+    if (!trimDecodedJpegToValidMarkers(jpegBytes)) {
+        Serial.println("[IMG WORKER] valid JPEG SOI/EOI markers not found");
+        return false;
+    }
+
+    Serial.print("[IMG WORKER] JPEG bytes=");
+    Serial.println((unsigned int)jpegBytes.size());
+
+    int ok = JpegDec.decodeArray(jpegBytes.data(), jpegBytes.size());
+
+    if (!ok) {
+        Serial.println("[IMG WORKER] JPEGDecoder.decodeArray failed");
+        return false;
+    }
+
+    int fullW = JpegDec.width;
+    int fullH = JpegDec.height;
+
+    if (fullW <= 0 || fullH <= 0) {
+        Serial.println("[IMG WORKER] invalid JPEG width/height");
+        return false;
+    }
+
+    Serial.print("[IMG WORKER] JPEG size=");
+    Serial.print(fullW);
+    Serial.print("x");
+    Serial.println(fullH);
+
+    int mcuW = JpegDec.MCUWidth;
+    int mcuH = JpegDec.MCUHeight;
+    int mcuCount = 0;
+
+    while (JpegDec.read()) {
+        uint16_t *pImg = JpegDec.pImage;
+        int mcuX = JpegDec.MCUx * mcuW;
+        int mcuY = JpegDec.MCUy * mcuH;
+
+        int copyW = ((mcuX + mcuW) <= fullW) ? mcuW : (fullW - mcuX);
+        int copyH = ((mcuY + mcuH) <= fullH) ? mcuH : (fullH - mcuY);
+
+        if (copyW <= 0 || copyH <= 0) {
+            continue;
+        }
+
+        for (int y = 0; y < copyH; y++) {
+            int fullY = mcuY + y;
+            int dstY = (fullY * GRAY_H) / fullH;
+
+            if (dstY < 0) dstY = 0;
+            if (dstY >= GRAY_H) dstY = GRAY_H - 1;
+
+            for (int x = 0; x < copyW; x++) {
+                int fullX = mcuX + x;
+                int dstX = (fullX * GRAY_W) / fullW;
+
+                if (dstX < 0) dstX = 0;
+                if (dstX >= GRAY_W) dstX = GRAY_W - 1;
+
+                uint16_t c = pImg[y * mcuW + x];
+
+                uint8_t r3 = (uint8_t)(((c >> 11) & 0x1F) >> 2);
+                uint8_t g3 = (uint8_t)(((c >> 5) & 0x3F) >> 3);
+                uint8_t b2 = (uint8_t)((c & 0x1F) >> 3);
+                uint8_t rgb332Pix = (uint8_t)((r3 << 5) | (g3 << 2) | b2);
+
+                outRgb332[dstY * GRAY_W + dstX] = rgb332Pix;
+            }
+        }
+
+        mcuCount++;
+        if ((mcuCount & 0x03) == 0) {
+            /*
+               Yield frequently because ESP32-C3 is single-core. This lets the
+               SPI task and Arduino loop run while JPEG conversion continues.
+            */
+            delay(0);
+        }
+    }
+
+    Serial.print("[IMG WORKER] RGB332 payload bytes=");
+    Serial.println(GRAY_BYTES);
+
+    return true;
+#else
+    (void)jpegBase64;
+    (void)outRgb332;
+    return false;
+#endif
+}
+
+bool queueRgb332ImagePacketForSpi(const uint8_t *rgb332Payload, const char *reason)
+{
+#if ENABLE_IMAGE_CAPTURE
+    if (rgb332Payload == NULL) {
+        return false;
+    }
+
+    const uint32_t imageLen = GRAY_BYTES;
+    const uint16_t imageW = GRAY_W;
+    const uint16_t imageH = GRAY_H;
+    const uint16_t flags = PACKET_FLAG_IMAGE_VALID;
+    const uint16_t textLen = 0;
+    const uint32_t packetLen = PACKET_HEADER_LEN + imageLen;
+
+    memset(imageWorkerPacketScratch, 0, sizeof(imageWorkerPacketScratch));
+
+    imageWorkerPacketScratch[0] = PACKET_MAGIC0;
+    imageWorkerPacketScratch[1] = PACKET_MAGIC1;
+    imageWorkerPacketScratch[2] = PACKET_VERSION;
+    imageWorkerPacketScratch[3] = PACKET_STATUS_DONE;
+
+    writeU32LE(imageWorkerPacketScratch, 4, packetLen);
+    writeU16LE(imageWorkerPacketScratch, 8, textLen);
+    writeU16LE(imageWorkerPacketScratch, 10, imageW);
+    writeU16LE(imageWorkerPacketScratch, 12, imageH);
+    writeU16LE(imageWorkerPacketScratch, 14, 0);
+    writeU32LE(imageWorkerPacketScratch, 16, imageLen);
+    writeU16LE(imageWorkerPacketScratch, 20, PACKET_HEADER_LEN);
+    writeU16LE(imageWorkerPacketScratch, 22, flags);
+
+    memcpy(&imageWorkerPacketScratch[PACKET_HEADER_LEN], rgb332Payload, imageLen);
+
+    if (!queuePacketBytesForSpi(imageWorkerPacketScratch, packetLen)) {
+        Serial.print("[IMG WORKER] image packet queue full reason=");
+        Serial.println(reason ? reason : "image");
+        return false;
+    }
+
+    Serial.print("[IMG WORKER] queued RGB332 image packet len=");
+    Serial.print(packetLen);
+    Serial.print(" reason=");
+    Serial.println(reason ? reason : "image");
+
+    return true;
+#else
+    (void)rgb332Payload;
+    (void)reason;
+    return false;
+#endif
+}
+
+bool queueNoImagePacketForSpi(const char *reason)
+{
+    const char *msg = "NOIMAGE";
+    const uint16_t textLen = 7;
+    const uint32_t packetLen = PACKET_HEADER_LEN + textLen;
+
+    memset(imageWorkerPacketScratch, 0, sizeof(imageWorkerPacketScratch));
+
+    imageWorkerPacketScratch[0] = PACKET_MAGIC0;
+    imageWorkerPacketScratch[1] = PACKET_MAGIC1;
+    imageWorkerPacketScratch[2] = PACKET_VERSION;
+    imageWorkerPacketScratch[3] = PACKET_STATUS_DONE;
+
+    writeU32LE(imageWorkerPacketScratch, 4, packetLen);
+    writeU16LE(imageWorkerPacketScratch, 8, textLen);
+    writeU16LE(imageWorkerPacketScratch, 10, 0);
+    writeU16LE(imageWorkerPacketScratch, 12, 0);
+    writeU16LE(imageWorkerPacketScratch, 14, 0);
+    writeU32LE(imageWorkerPacketScratch, 16, 0);
+    writeU16LE(imageWorkerPacketScratch, 20, PACKET_HEADER_LEN);
+    writeU16LE(imageWorkerPacketScratch, 22, 0);
+
+    memcpy(&imageWorkerPacketScratch[PACKET_HEADER_LEN], msg, textLen);
+
+    if (!queuePacketBytesForSpi(imageWorkerPacketScratch, packetLen)) {
+        Serial.print("[IMG WORKER] NOIMAGE packet queue full reason=");
+        Serial.println(reason ? reason : "noimage");
+        return false;
+    }
+
+    return true;
+}
+
+void imageDecodeWorkerTask(void *param)
+{
+    (void)param;
+
+    for (;;) {
+        String job = "";
+
+        if (imageWorkerMutex != NULL &&
+            xSemaphoreTake(imageWorkerMutex, pdMS_TO_TICKS(20)) == pdTRUE) {
+            if (imageWorkerJobPending) {
+                job = imageWorkerJpegBase64;
+                imageWorkerJpegBase64 = "";
+                imageWorkerJobPending = false;
+                imageWorkerBusy = true;
+            }
+            xSemaphoreGive(imageWorkerMutex);
+        }
+
+        if (job.length() == 0) {
+            vTaskDelay(pdMS_TO_TICKS(10));
+            continue;
+        }
+
+        Serial.println("[IMG WORKER] job started; OCR loop should continue while JPEG converts");
+
+        bool decoded = decodeJpegBase64ToRgb332Buffer(job, imageWorkerRgb332);
+        bool queued = false;
+
+        if (decoded) {
+            /*
+               Queue may be temporarily full because realtime OCR packets are
+               still draining. Retry instead of dropping the image immediately.
+            */
+            for (int attempt = 0; attempt < 160 && !queued; attempt++) {
+                queued = queueRgb332ImagePacketForSpi(imageWorkerRgb332, "background-image-worker");
+                if (!queued) {
+                    vTaskDelay(pdMS_TO_TICKS(20));
+                }
+            }
+        }
+
+        if (!decoded || !queued) {
+            queueNoImagePacketForSpi(decoded ? "image-queue-timeout" : "image-decode-failed");
+            Serial.println("[IMG WORKER] image failed, NOIMAGE queued");
+        } else {
+            Serial.println("[IMG WORKER] image packet queued for FPGA; realtime text packets continue through same SPI queue");
+        }
+
+        if (imageWorkerMutex != NULL &&
+            xSemaphoreTake(imageWorkerMutex, pdMS_TO_TICKS(20)) == pdTRUE) {
+            imageWorkerBusy = false;
+            xSemaphoreGive(imageWorkerMutex);
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(5));
+    }
+}
+
+
 
 
 
@@ -3737,21 +4177,40 @@ void setup()
     Serial.println("[SESSION] Waiting for FPGA button session-start command 0x5F...");
     Serial.println("[SESSION] Grove detection will stay idle until 0x5F is received, then raw OCR is used directly.");
 
+    imageWorkerMutex = xSemaphoreCreateMutex();
+    if (imageWorkerMutex == NULL) {
+        Serial.println("[IMG WORKER] failed to create mutex");
+    }
+
     /*
        ESP32-C3 has only core 0, so do NOT use xTaskCreatePinnedToCore(..., 1).
-       This creates the SPI trigger receiver task on the available core.
+       SPI gets slightly higher priority than the JPEG worker so FPGA packet
+       reads stay responsive while the worker is converting the image.
     */
     BaseType_t ok = xTaskCreate(
         spiCommandTask,
         "spiCommandTask",
         8192,
         NULL,
-        1,
+        2,
         &spiTriggerTaskHandle
     );
 
     if (ok != pdPASS) {
         Serial.println("[SPI] failed to create trigger task");
+    }
+
+    BaseType_t imgOk = xTaskCreate(
+        imageDecodeWorkerTask,
+        "imageDecodeWorker",
+        12288,
+        NULL,
+        1,
+        &imageWorkerTaskHandle
+    );
+
+    if (imgOk != pdPASS) {
+        Serial.println("[IMG WORKER] failed to create image decode task");
     }
 }
 

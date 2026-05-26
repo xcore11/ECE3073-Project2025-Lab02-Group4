@@ -94,10 +94,14 @@ extern int accel_read_z(alt_32 *z);
    Emergency stop tilt limits.
    Menu navigation uses a small Y threshold (80). Emergency stop intentionally
    uses a much larger threshold plus hysteresis so normal menu/game tilting
-   does not trigger it accidentally. Tune these if your accelerometer scale
-   differs.
+   does not trigger it accidentally.
+
+   The confirm count requires several consecutive unsafe readings before the
+   caution screen is latched. This prevents one random accelerometer spike from
+   immediately registering as an emergency.
 */
 #define EMERGENCY_TILT_THRESHOLD        240
+#define EMERGENCY_TILT_CONFIRM_COUNT     4
 #define EMERGENCY_RECOVER_THRESHOLD      90
 #define EMERGENCY_REDRAW_DELAY_US    250000
 #define EMERGENCY_KEY_EXIT_MASK      CONTROL_KEY1_MASK
@@ -110,6 +114,7 @@ static volatile uint32_t vga_irq_control_event_type = CONTROL_EVENT_NONE;
 static int current_screen = SCREEN_MENU;
 static int selected_menu_index = 0;
 static int emergency_stop_active = 0;
+static int emergency_tilt_confirm_count = 0;
 
 static void shared_write_u32(uint32_t offset, uint32_t value)
 {
@@ -251,6 +256,7 @@ static void draw_emergency_stop_screen(alt_32 x, alt_32 y, alt_32 z)
 static void enter_emergency_stop_screen(alt_32 x, alt_32 y, alt_32 z)
 {
     emergency_stop_active = 1;
+    emergency_tilt_confirm_count = 0;
     current_screen = SCREEN_EMERGENCY;
 
     shared_write_u32(FLAG_EMERGENCY_STOP, 1);
@@ -289,11 +295,31 @@ static int service_emergency_stop(void)
 
     if (emergency_orientation_is_unsafe(x, y))
     {
-        enter_emergency_stop_screen(x, y, z);
-        return 1;
+        emergency_tilt_confirm_count++;
+
+        if (emergency_tilt_confirm_count >= EMERGENCY_TILT_CONFIRM_COUNT)
+        {
+            enter_emergency_stop_screen(x, y, z);
+            return 1;
+        }
+
+        return 0;
     }
 
+    emergency_tilt_confirm_count = 0;
     return 0;
+}
+
+/*
+   Public emergency poll used by long-running game update loops.
+   main.c normally checks emergency before calling each screen update, but
+   Snake has its own blocking step delay. Calling this from snake.c lets the
+   caution screen latch during that delay instead of waiting until snake_update()
+   fully returns.
+*/
+int vga_poll_emergency_stop_from_game(void)
+{
+    return service_emergency_stop();
 }
 
 static void update_menu_navigation(void)
@@ -413,6 +439,7 @@ static void handle_irq_button_action(void)
             fflush(stdout);
 
             emergency_stop_active = 0;
+            emergency_tilt_confirm_count = 0;
             shared_write_u32(FLAG_EMERGENCY_STOP, 0);
             selected_menu_index = 0;
             enter_screen(SCREEN_MENU);

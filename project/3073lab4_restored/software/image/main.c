@@ -284,12 +284,10 @@ static void handle_pending_debug_image_capture(void)
     shared_write_u32(FLAG_DEBUG_IMAGE_CAPTURE_REQ,
                      shared_read_u32(FLAG_DEBUG_IMAGE_CAPTURE_REQ) + 1);
     shared_write_u32(FLAG_DEBUG_STATUS, DEBUG_STATUS_CAPTURE_REQUESTED);
-
-    printf("KEY0 debug capture request: sending 0xD4 to ESP\n");
+    printf("KEY0 debug capture request: sending colour RGB332 image command to ESP\n");
     fflush(stdout);
 
     spi_send_debug_image_capture();
-
     shared_write_u32(FLAG_DEBUG_IMAGE_CAPTURE_ACK,
                      shared_read_u32(FLAG_DEBUG_IMAGE_CAPTURE_ACK) + 1);
 }

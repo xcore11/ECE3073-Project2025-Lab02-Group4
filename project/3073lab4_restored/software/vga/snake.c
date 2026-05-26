@@ -15,6 +15,26 @@ extern int accel_read_x(alt_32 *x);
 extern int accel_read_y(alt_32 *y);
 extern int accel_read_z(alt_32 *z);
 
+/*
+   main.c owns the emergency stop screen and shared emergency flags.
+   Snake calls this during its long update/delay sections so emergency tilt
+   can interrupt Snake immediately instead of waiting for snake_update() to
+   finish its full movement delay.
+*/
+extern int vga_poll_emergency_stop_from_game(void);
+
+static int snake_emergency_stop_requested(void)
+{
+    if (vga_poll_emergency_stop_from_game())
+    {
+        printf("Snake update interrupted by emergency stop\n");
+        fflush(stdout);
+        return 1;
+    }
+
+    return 0;
+}
+
 /* =========================
    RGB332 VGA colors
 
@@ -1694,7 +1714,7 @@ void snake_init(void)
     draw_game_screen_incremental();
 }
 
-static void snake_service_mailbox_delay(unsigned int total_delay_us)
+static int snake_service_mailbox_delay(unsigned int total_delay_us)
 {
     unsigned int elapsed = 0;
 
@@ -1702,20 +1722,34 @@ static void snake_service_mailbox_delay(unsigned int total_delay_us)
     {
         unsigned int slice = SNAKE_MAILBOX_SERVICE_SLICE_US;
 
+        if (snake_emergency_stop_requested())
+            return 1;
+
         if (elapsed + slice > total_delay_us)
             slice = total_delay_us - elapsed;
 
         snake_check_mailbox();
+
+        if (snake_emergency_stop_requested())
+            return 1;
+
         usleep(slice);
         elapsed += slice;
+
+        if (snake_emergency_stop_requested())
+            return 1;
     }
 
     snake_check_mailbox();
+    return snake_emergency_stop_requested();
 }
 
 void snake_update(void)
 {
     snake_check_mailbox();
+
+    if (snake_emergency_stop_requested())
+        return;
 
     if (snake_lost)
     {
@@ -1738,14 +1772,26 @@ void snake_update(void)
            Keep servicing mailbox / drawing RX green, but pause snake movement
            until incoming realtime instructions settle. This prevents the snake
            from moving into a half-updated wall/apple/portal map.
+           Emergency stop must still be checked during this short pause.
         */
         snake_check_mailbox();
-        usleep(20000);
+        if (snake_service_mailbox_delay(20000))
+            return;
         return;
     }
 
+    if (snake_emergency_stop_requested())
+        return;
+
     read_snake_direction();
+
+    if (snake_emergency_stop_requested())
+        return;
+
     snake_step();
+
+    if (snake_emergency_stop_requested())
+        return;
 
     if (snake_lost)
     {
@@ -1758,7 +1804,8 @@ void snake_update(void)
     }
 
     snake_check_mailbox();
-    snake_service_mailbox_delay(SNAKE_STEP_DELAY_US);
+    if (snake_service_mailbox_delay(SNAKE_STEP_DELAY_US))
+        return;
 }
 
 int snake_is_lost(void)

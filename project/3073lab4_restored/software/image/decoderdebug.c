@@ -15,6 +15,7 @@ static char last_hex_msg[DEBUG_MSG_MAX + 1];
 static uint32_t last_led_module_option = 0;
 static uint32_t last_ledr_option = 0;
 static uint32_t last_speaker_option = 0;
+static int suppress_next_duration_tail_for_vga = 0;
 
 static void dbg_write32(uint32_t offset, uint32_t value)
 {
@@ -82,6 +83,117 @@ void decoder_debug_reset(void)
     last_led_module_option = 0;
     last_ledr_option = 0;
     last_speaker_option = 0;
+    suppress_next_duration_tail_for_vga = 0;
+}
+
+static void normalize_debug_text(const char *src, unsigned int len, char *dst, unsigned int dst_size);
+static void compact_debug_text(const char *src, char *dst, unsigned int dst_size);
+
+static int compact_is_duration_unit_at(const char *p)
+{
+    if (p == 0)
+        return 0;
+
+    /* Match longest first. These are only used in the post-instruction
+       suppress window, so we can be generous with OCR variants here. */
+    if (strncmp(p, "SECONDS", 7) == 0) return 7;
+    if (strncmp(p, "SECOND", 6) == 0)  return 6;
+    if (strncmp(p, "SECS", 4) == 0)    return 4;
+    if (strncmp(p, "SEC", 3) == 0)     return 3;
+    if (strncmp(p, "5EC", 3) == 0)     return 3;
+    if (strncmp(p, "S3C", 3) == 0)     return 3;
+    if (strncmp(p, "SCC", 3) == 0)     return 3;
+    if (strncmp(p, "SE", 2) == 0)      return 2;
+
+    return 0;
+}
+
+static int compact_is_only_duration_unit(const char *compact)
+{
+    unsigned int pos = 0;
+    int matched_count = 0;
+
+    if (compact == 0 || compact[0] == '\0')
+        return 0;
+
+    /*
+       This is intentionally only called after a full debug instruction has
+       already been published. At that point a following packet that contains
+       only SEC / SECOND / SECSEC is almost always the repeated duration tail
+       caused by OCR row duplication. Real SEC rows that are still needed by an
+       instruction are not hidden because the suppress window is not armed yet.
+    */
+    while (compact[pos] != '\0')
+    {
+        int n = compact_is_duration_unit_at(&compact[pos]);
+        if (n <= 0)
+            return 0;
+
+        pos += (unsigned int)n;
+        matched_count++;
+    }
+
+    return matched_count > 0;
+}
+
+int decoder_debug_should_hide_vga_text(const char *text, unsigned int len)
+{
+    char spaced[DEBUG_ACCUM_MAX];
+    char compact[DEBUG_ACCUM_MAX];
+
+    if (text == 0 || len == 0)
+        return 0;
+
+    if (!suppress_next_duration_tail_for_vga)
+        return 0;
+
+    normalize_debug_text(text, len, spaced, sizeof(spaced));
+    compact_debug_text(spaced, compact, sizeof(compact));
+
+    if (compact_is_only_duration_unit(compact))
+    {
+        char accum_compact[DEBUG_ACCUM_MAX];
+
+        compact_debug_text(debug_accum, accum_compact, sizeof(accum_compact));
+
+        /*
+           Only suppress a repeated SEC when it is a loose tail immediately
+           after a completed instruction.
+
+           If debug_accum already has text, then a new instruction is currently
+           being assembled, e.g.
+
+               SET SPEAKER FREQ TO 50 HZ FOR 1
+               SEC
+
+           In that case this SEC is required to complete the new instruction,
+           so it must still be published to VGA and passed to the decoder.
+           This prevents the old global suppress window from eating the SEC of
+           the next instruction.
+        */
+        if (accum_compact[0] != '\0')
+        {
+            suppress_next_duration_tail_for_vga = 0;
+            printf("[DEBUG DECODER] kept SEC because a new instruction is pending: accum=[%s] text=[%s]\n",
+                   accum_compact,
+                   spaced);
+            fflush(stdout);
+            return 0;
+        }
+
+        suppress_next_duration_tail_for_vga = 0;
+        printf("[DEBUG DECODER] suppressed repeated SEC tail for previous instruction: [%s]\n", spaced);
+        fflush(stdout);
+        return 1;
+    }
+
+    /* Only the immediate next non-empty OCR packet is considered a possible
+       duplicate tail. If another real word/instruction arrives first, keep it
+       and clear the suppression window. */
+    if (compact[0] != '\0')
+        suppress_next_duration_tail_for_vga = 0;
+
+    return 0;
 }
 
 static int is_separator_char(char c)
@@ -207,6 +319,170 @@ static void compact_debug_text(const char *in, char *out, unsigned int out_size)
     out[pos] = '\0';
 }
 
+
+static int compact_duration_unit_len_at(const char *p)
+{
+    if (p == 0)
+        return 0;
+
+    /*
+       Match longest first.  This matters because SECOND starts with SEC.
+       The OCR/debug path sometimes produces:
+           SEC SEC      -> compact SECSEC
+           SECOND SEC   -> compact SECONDSEC
+           FOR 2 SECSEC -> compact FOR2SECSEC
+       The spaced-token filter below catches the first form only when spaces
+       survive.  This compact filter catches the no-space forms too.
+    */
+    if (strncmp(p, "SECONDS", 7) == 0)
+        return 7;
+    if (strncmp(p, "SECOND", 6) == 0)
+        return 6;
+    if (strncmp(p, "SEC", 3) == 0)
+        return 3;
+
+    return 0;
+}
+
+static int filter_duplicate_duration_units_compact(char *compact)
+{
+    char tmp[DEBUG_ACCUM_MAX];
+    unsigned int read_pos = 0;
+    unsigned int write_pos = 0;
+    int last_token_was_duration = 0;
+    int removed = 0;
+
+    if (compact == 0 || compact[0] == '\0')
+        return 0;
+
+    while (compact[read_pos] != '\0' && write_pos < sizeof(tmp) - 1)
+    {
+        int unit_len = compact_duration_unit_len_at(&compact[read_pos]);
+
+        if (unit_len > 0)
+        {
+            if (last_token_was_duration)
+            {
+                read_pos += (unsigned int)unit_len;
+                removed++;
+                continue;
+            }
+
+            {
+                int i;
+                for (i = 0; i < unit_len && write_pos < sizeof(tmp) - 1; i++)
+                    tmp[write_pos++] = compact[read_pos++];
+            }
+
+            last_token_was_duration = 1;
+            continue;
+        }
+
+        tmp[write_pos++] = compact[read_pos++];
+        last_token_was_duration = 0;
+    }
+
+    tmp[write_pos] = '\0';
+    strcpy(compact, tmp);
+
+    return removed;
+}
+
+
+static int debug_token_is_duration_unit(const char *tok)
+{
+    if (tok == 0)
+        return 0;
+
+    return (strcmp(tok, "SEC") == 0 ||
+            strcmp(tok, "SECOND") == 0 ||
+            strcmp(tok, "SECONDS") == 0);
+}
+
+static int debug_token_starts_new_instruction(const char *tok)
+{
+    if (tok == 0)
+        return 0;
+
+    return (strcmp(tok, "DISPLAY") == 0 ||
+            strcmp(tok, "HEX") == 0 ||
+            strcmp(tok, "SET") == 0 ||
+            strcmp(tok, "SPEAKER") == 0 ||
+            strcmp(tok, "TURN") == 0 ||
+            strcmp(tok, "RED") == 0 ||
+            strcmp(tok, "GREEN") == 0 ||
+            strcmp(tok, "YELLOW") == 0);
+}
+
+static int filter_duplicate_duration_units_per_instruction(char *spaced)
+{
+    char tmp[DEBUG_ACCUM_MAX];
+    char tok[32];
+    unsigned int read_pos = 0;
+    unsigned int write_pos = 0;
+    int duration_unit_seen = 0;
+    int removed = 0;
+
+    if (spaced == 0 || spaced[0] == '\0')
+        return 0;
+
+    tmp[0] = '\0';
+
+    while (spaced[read_pos] != '\0')
+    {
+        unsigned int tok_pos = 0;
+        int is_duration;
+        int drop_token = 0;
+
+        while (spaced[read_pos] == ' ')
+            read_pos++;
+
+        if (spaced[read_pos] == '\0')
+            break;
+
+        while (spaced[read_pos] != '\0' && spaced[read_pos] != ' ' && tok_pos < sizeof(tok) - 1)
+            tok[tok_pos++] = spaced[read_pos++];
+
+        tok[tok_pos] = '\0';
+
+        while (spaced[read_pos] != '\0' && spaced[read_pos] != ' ')
+            read_pos++;
+
+        if (debug_token_starts_new_instruction(tok))
+            duration_unit_seen = 0;
+
+        is_duration = debug_token_is_duration_unit(tok);
+        if (is_duration)
+        {
+            if (duration_unit_seen)
+            {
+                drop_token = 1;
+                removed++;
+            }
+            else
+            {
+                duration_unit_seen = 1;
+            }
+        }
+
+        if (!drop_token)
+        {
+            unsigned int i;
+
+            if (write_pos > 0 && write_pos < sizeof(tmp) - 1)
+                tmp[write_pos++] = ' ';
+
+            for (i = 0; tok[i] != '\0' && write_pos < sizeof(tmp) - 1; i++)
+                tmp[write_pos++] = tok[i];
+        }
+    }
+
+    tmp[write_pos] = '\0';
+    strcpy(spaced, tmp);
+
+    return removed;
+}
+
 static int compact_has_display_end_marker(const char *compact)
 {
     return (compact != 0 && strstr(compact, "ZZZ") != 0);
@@ -318,7 +594,54 @@ static int parse_first_uint(const char *text, unsigned int *value)
     return 1;
 }
 
+static int parse_uint_after_compact_word(const char *compact, const char *word, unsigned int *value)
+{
+    const char *p = strstr(compact, word);
 
+    if (p == 0)
+        return 0;
+
+    p += strlen(word);
+
+    while (*p != '\0' && !isdigit((unsigned char)*p))
+        p++;
+
+    if (!isdigit((unsigned char)*p))
+        return 0;
+
+    *value = 0;
+    while (isdigit((unsigned char)*p))
+    {
+        *value = (*value * 10u) + (unsigned int)(*p - '0');
+        p++;
+    }
+
+    return 1;
+}
+
+static int compact_has_possible_split_for_after_hz(const char *compact)
+{
+    const char *p;
+
+    if (compact == 0)
+        return 0;
+
+    p = compact;
+    while ((p = strstr(p, "HZ")) != 0)
+    {
+        const char *tail = p + 2;
+
+        /* If a row ends like HZF, the F is probably the first letter of
+           FOR from the next OCR row.  Wait instead of publishing a
+           continuous speaker command too early. */
+        if (tail[0] == 'F')
+            return 1;
+
+        p += 2;
+    }
+
+    return 0;
+}
 
 static const char *last_strstr_local(const char *haystack, const char *needle)
 {
@@ -594,7 +917,12 @@ static int detect_speaker(const char *spaced, const char *compact, uint32_t *opt
     unsigned int seconds = 0;
     int has_duration = 0;
 
-    if (strstr(compact, "SPEAKER") == 0 || strstr(compact, "FREQUENCY") == 0)
+    if (strstr(compact, "SPEAKER") == 0)
+        return 0;
+
+    /* Python now emits OCR-friendlier "FREQ" instead of the 9-letter
+       "FREQUENCY" when possible.  Accept both forms. */
+    if (strstr(compact, "FREQUENCY") == 0 && strstr(compact, "FREQ") == 0)
         return 0;
 
     if (strstr(compact, "HZ") == 0)
@@ -630,7 +958,8 @@ static int detect_speaker(const char *spaced, const char *compact, uint32_t *opt
         if (strstr(compact, "SECOND") == 0 && strstr(compact, "SEC") == 0)
             return 0;
 
-        if (!parse_uint_after_word(spaced, "FOR", &seconds))
+        if (!parse_uint_after_word(spaced, "FOR", &seconds) &&
+            !parse_uint_after_compact_word(compact, "FOR", &seconds))
             parse_first_uint(spaced, &seconds);
 
         if (seconds == 0)
@@ -640,6 +969,10 @@ static int detect_speaker(const char *spaced, const char *compact, uint32_t *opt
             seconds = 255u;
 
         has_duration = 1;
+    }
+    else if (compact_has_possible_split_for_after_hz(compact))
+    {
+        return 0;
     }
 
     *option_out = DEBUG_OPTION_VALID |
@@ -682,13 +1015,15 @@ static int detect_speaker_duration_tail(const char *spaced, const char *compact,
     if ((last_speaker_option & DEBUG_OPTION_VALID) == 0)
         return 0;
 
-    if (strstr(compact, "FOR") == 0)
+    if (strstr(compact, "FOR") == 0 && strstr(compact, "OR") == 0)
         return 0;
 
     if (strstr(compact, "SECOND") == 0 && strstr(compact, "SEC") == 0)
         return 0;
 
-    if (!parse_uint_after_word(spaced, "FOR", &seconds))
+    if (!parse_uint_after_word(spaced, "FOR", &seconds) &&
+        !parse_uint_after_compact_word(compact, "FOR", &seconds) &&
+        !parse_uint_after_compact_word(compact, "OR", &seconds))
         parse_first_uint(spaced, &seconds);
 
     if (seconds == 0)
@@ -786,6 +1121,12 @@ int decoder_debug_decode_text(const char *text, unsigned int len)
                              last_led_module_option,
                              last_ledr_option,
                              last_speaker_option);
+
+        if ((changed_mask & (DEBUG_CONTROL_MASK_LED_MODULE | DEBUG_CONTROL_MASK_LEDR | DEBUG_CONTROL_MASK_SPEAKER)) != 0 &&
+            compact_has_second_word(compact))
+        {
+            suppress_next_duration_tail_for_vga = 1;
+        }
 
         /* The instruction is complete and has been published.  Clear the
            accumulator so trailing OCR fragments such as the final "Z" in
