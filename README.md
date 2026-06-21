@@ -55,7 +55,7 @@ ECE3073-Project2025-Lab02-Group4/
 
 ## Results
 The following demonstrates the results of the final project demonstration.
-![Profile picture](./assets/IsometricView_Setup.png)
+![Profile picture](./assets/IsometricView_Setup.jpeg)
 ## What is Expected
 # Milestone 1
 1. SW0 - Controls HEX display
