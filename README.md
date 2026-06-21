@@ -53,6 +53,9 @@ ECE3073-Project2025-Lab02-Group4/
    ![Wiring Diagram](https://i.imgur.com/L8OQDLU.png)
 2. Ensure the VGA connector is connected to a monitor.
 
+## Results
+The following demonstrates the results of the final project demonstration.
+![Profile picture](./assets/IsometricView_Setup.png)
 ## What is Expected
 # Milestone 1
 1. SW0 - Controls HEX display
