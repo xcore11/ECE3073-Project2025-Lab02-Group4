@@ -29,8 +29,6 @@ Although the final demonstration is presented through a VGA-based multi-game sys
 
 ## Project Showcase
 
-> All images are stored in `./assets/`. GitHub strips most custom CSS from README files, so this section uses GitHub-safe HTML tables, centered alignment, fixed widths, and labelled captions.
-
 <div align="center">
   <img src="./assets/IsometricView_Setup.jpeg" alt="Figure 1: Isometric view of the integrated DE10-Lite FPGA hardware setup" width="720">
   <br>
