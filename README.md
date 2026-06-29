@@ -1,177 +1,310 @@
-## Project 
+# ECE3073 DE10-Lite Triple-Core Embedded Vision SoC
 
-This repository contains the core project structure, templates, and supporting files for the ECE3073 mini-project on **Real-Time Embedded Vision using ARM and FPGA-based multitasking systems**.
+<div align="center">
 
-The project focuses on integrating an edge-AI vision module with a NIOS II multicore system on FPGA to capture, process, and display real-time visual data. The system performs text recognition using a vision module and executes embedded instructions through hardware peripherals such as VGA, LEDs, HEX displays, and audio output.
+**A hardware-software co-design project on FPGA-based multicore processing, real-time embedded vision, and memory-mapped peripheral control.**
 
-The provided files are designed to guide development across multiple milestones, from basic hardware interfacing to full system integration and optimization.
+`DE10-Lite FPGA` · `Nios II` · `Grove Vision AI V2` · `ESP32-C3` · `SPI/UART` · `Shared SDRAM` · `VGA` · `RTOS` · `Accelerometer` · `HW/SW Co-Design`
 
-### Key Features Covered
-- FPGA-based embedded system using DE10-Lite
-- Multicore NIOS II processor architecture
-- Real-time image/text processing via Grove AI Vision module
-- SPI/UART communication between modules
-- VGA display output and graphical rendering
-- Hardware interaction (LEDs, switches, HEX display, speaker)
-- Accelerometer-based orientation control
-- Optional RTOS for task scheduling and multitasking
+</div>
 
-## Structure
+---
+
+## About the Project
+
+This repository contains the final implementation for the **ECE3073 Real-Time Embedded Vision Using ARM, Grove AI V2, and Nios II-based Multitasking System on FPGA** mini-project.
+
+The project integrates an **ARM-based edge-AI vision module** with a **DE10-Lite FPGA** configured as a small multicore embedded system. The Grove Vision AI V2 and camera perform on-device image/text recognition, while the FPGA fabric hosts multiple **Nios II soft-core processors** responsible for data ingestion, shared-memory coordination, VGA rendering, user I/O, and real-time peripheral control.
+
+Although the final demonstration is presented through a VGA-based multi-game system, the core engineering focus is **computer architecture and semiconductor-oriented HW/SW co-design**:
+
+- partitioning workloads across multiple soft-core processors;
+- using FPGA fabric as a configurable SoC prototyping platform;
+- coordinating software tasks through shared SDRAM and memory-mapped peripherals;
+- integrating external edge-AI hardware through serial interfaces;
+- measuring responsiveness using RTOS scheduling, interrupts, and GPIO timing points;
+- driving real hardware outputs such as VGA, HEX displays, LEDs, switches, accelerometer input, and audio.
+
+---
+
+## Project Showcase
+
+<div align="center">
+  <img src="./assets/IsometricView_Setup.jpeg" alt="Figure 1: Isometric view of the integrated DE10-Lite FPGA hardware setup" width="720">
+  <br>
+  <sub><b>Figure 1.</b> Integrated DE10-Lite FPGA setup with VGA display, camera/vision path, and external peripherals.</sub>
+</div>
+
+<br>
+
+<table align="center">
+  <tr>
+    <td align="center" width="50%">
+      <img src="./assets/BirdEyeView_Setup.jpeg" alt="Figure 2: Bird-eye view of the FPGA hardware and cabling layout" width="360"><br>
+      <sub><b>Figure 2.</b> Bird-eye hardware view showing board placement, cabling, and peripheral layout.</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="./assets/3DprintedMount.jpeg" alt="Figure 3: 3D-printed mount used to stabilise the camera or hardware module" width="360"><br>
+      <sub><b>Figure 3.</b> 3D-printed mount used to stabilise the camera/vision module for repeatable image capture.</sub>
+    </td>
+  </tr>
+</table>
+
+<br>
+
+<table align="center">
+  <tr>
+    <td align="center" width="50%">
+      <img src="./assets/MainMenu.jpeg" alt="Figure 4: VGA main menu rendered by the FPGA system" width="360"><br>
+      <sub><b>Figure 4.</b> VGA main menu rendered by the display pipeline.</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="./assets/SnakeGame_Menu.jpeg" alt="Figure 5: Snake game interface running on the FPGA VGA output" width="360"><br>
+      <sub><b>Figure 5.</b> Snake mode used as a real-time workload for motion control, scoring, LEDs, and audio feedback.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <img src="./assets/BattleShip_Menu.jpeg" alt="Figure 6: Battleship game interface displayed on VGA" width="360"><br>
+      <sub><b>Figure 6.</b> Battleship mode demonstrating grid rendering and accelerometer-based cursor interaction.</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="./assets/DrawPixel_Menu.jpeg" alt="Figure 7: Draw Pixel mode displayed on VGA" width="360"><br>
+      <sub><b>Figure 7.</b> Draw Pixel mode for image-backed interaction and pixel-level VGA rendering.</sub>
+    </td>
+  </tr>
+</table>
+
+---
+
+## System Architecture
+
+The system is structured as a small FPGA-based SoC. Each processor and peripheral is assigned a clear role so that I/O, rendering, and control logic do not block each other.
+
+```mermaid
+flowchart LR
+    CAM[OV5647 Camera] --> GVAI[Grove Vision AI V2\nARM Edge-AI OCR / Image Processing]
+    GVAI --> ESP[ESP32-C3\nPacket Bridge]
+    ESP --> SPI[SPI / UART Interface]
+
+    SPI --> IMG[Nios II Image Core\nVision Data Receiver]
+    IMG <--> SDRAM[(Shared SDRAM\nFrame / Text / Mailbox Data)]
+
+    CTRL[Nios II Control Core\nRTOS + I/O Control] <--> SDRAM
+    VGA[Nios II VGA Core\nGraphics Renderer] <--> SDRAM
+
+    ACC[ADXL345 Accelerometer] --> CTRL
+    SW[Switches / Push Buttons] --> CTRL
+    CTRL --> HEX[HEX Displays]
+    CTRL --> LED[LED / Traffic Light Output]
+    CTRL --> AUD[Speaker / Buzzer]
+    VGA --> MON[VGA Monitor]
 ```
+
+### Core Partitioning
+
+| Processing Block | Hardware/Software Role | Computer Architecture Relevance |
+|---|---|---|
+| **Nios II Control Core** | Runs control flow, switch/push-button handling, HEX/LED/audio updates, CPU load display, and RTOS-managed tasks. | Demonstrates real-time scheduling, interrupt/polling trade-offs, and deterministic peripheral control. |
+| **Nios II Image Core** | Receives vision/OCR packets from the Grove AI/ESP32 path and stages image or text data into shared memory. | Separates I/O-bound data ingestion from rendering and control workloads. |
+| **Nios II VGA Core** | Renders menus, gameplay screens, captured images, overlays, and pixel graphics to an external monitor. | Isolates graphics generation from sensor and control paths, reducing contention in the main control loop. |
+| **Shared SDRAM Fabric** | Provides shared state, frame/image storage, text buffers, and mailbox-style communication between cores. | Models SoC-style shared-memory communication, arbitration, bandwidth limits, and producer-consumer data flow. |
+| **Grove Vision AI V2 + ESP32-C3** | Performs ARM-based edge inference/OCR and forwards processed data into the FPGA system. | Shows heterogeneous compute partitioning between external AI hardware and FPGA-based soft processors. |
+| **Memory-Mapped FPGA I/O** | Switches, LEDs, HEX displays, audio, accelerometer, SPI/UART, GPIO timing pins, and VGA are exposed to software through hardware interfaces. | Links C software directly to semiconductor-level register and peripheral design. |
+
+---
+
+## Hardware-Software Data Flow
+
+1. The **camera** captures visual input such as scrolling text, physical drawings, or game/map data.
+2. The **Grove Vision AI V2** performs on-device processing instead of relying on cloud inference.
+3. The **ESP32-C3 / SPI-UART communication path** transfers the processed data into the FPGA system.
+4. The **Image Core** validates incoming data and writes text/image information into shared SDRAM.
+5. The **Control Core** uses RTOS tasks, switches, push buttons, and accelerometer input to update system state.
+6. The **VGA Core** reads shared state and renders menus, gameplay, captured images, and overlays.
+7. The **HEX displays, LEDs, and speaker** provide real-time physical feedback linked to the software state.
+
+---
+
+## Computer Architecture and Semiconductor Focus
+
+This project is relevant to computer architecture, embedded systems, and semiconductor prototyping because it uses an FPGA as a configurable SoC platform rather than only as a digital logic board.
+
+| Topic | How it appears in this project |
+|---|---|
+| **Soft-core processor design** | Multiple Nios II processors are instantiated inside the MAX 10 FPGA fabric. |
+| **Multicore workload partitioning** | Vision input, control/RTOS tasks, and VGA rendering are separated across dedicated processing domains. |
+| **Hardware-software co-design** | C software controls custom FPGA-connected peripherals through memory-mapped I/O. |
+| **Shared-memory communication** | SDRAM is used for image buffers, runtime state, and inter-core message passing. |
+| **Real-time systems** | RTOS scheduling, push-button events, accelerometer control, CPU utilisation display, and audio timing require predictable behaviour. |
+| **Peripheral integration** | SPI/UART, PIO, VGA, GPIO, HEX displays, LEDs, speaker output, and accelerometer input are integrated into one system. |
+| **Pre-silicon style prototyping** | The FPGA implementation resembles early SoC exploration, where processor/peripheral partitioning and data movement can be tested before fixed hardware. |
+| **Performance analysis** | GPIO timing points, CPU load display, and latency measurements connect software behaviour to hardware timing. |
+
+---
+
+## Key Features
+
+### FPGA and Multicore Processing
+
+- Triple-core Nios II architecture for control, image ingestion, and VGA rendering.
+- Shared SDRAM used for frame data, text buffers, runtime state, and inter-core communication.
+- RTOS-supported scheduling on the control path for time-sensitive tasks.
+- Hardware peripherals controlled through FPGA-connected interfaces.
+
+### Vision, Communication, and Sensor Input
+
+- Grove Vision AI V2 with OV5647 camera for image/text capture.
+- ESP32-C3 bridge for transferring processed data into the FPGA system.
+- SPI/UART communication between external modules and Nios II processors.
+- ADXL345 accelerometer used for tilt sensing, movement control, and orientation-aware behaviour.
+
+### VGA and Application Layer
+
+- VGA graphics output with menu rendering and real-time application screens.
+- Classic Snake, Battleship, and Draw Pixel modes used as interactive validation workloads.
+- Camera/image capture support for visual input and background rendering.
+- LED, HEX, and speaker feedback linked to system state and user interaction.
+
+---
+
+## Hardware Requirements
+
+| Component | Purpose |
+|---|---|
+| **DE10-Lite FPGA board** | Main FPGA platform containing MAX 10 fabric and Nios II soft-core system. |
+| **Grove Vision AI V2** | ARM-based edge-AI module for OCR/image processing. |
+| **OV5647 camera module** | Captures visual input for recognition or image-backed application modes. |
+| **ESP32-C3 module** | Communication bridge between the vision path and FPGA system. |
+| **VGA monitor and connector** | Displays menus, graphics, captured image output, and game modes. |
+| **Crow-tail speaker / buzzer** | Audio output for feedback and event signalling. |
+| **LED / traffic light module** | Visual peripheral output controlled by embedded instructions or game state. |
+| **Breadboard and jumper wires** | Hardware prototyping and module interconnect. |
+| **3D-printed mount** | Camera/module stabilisation for repeatable captures. |
+
+---
+
+## Software Requirements
+
+- Intel Quartus Prime Lite
+- Platform Designer / Qsys workflow for Nios II system generation
+- Nios II Software Build Tools for Eclipse
+- DE10-Lite board support files
+- ESP32 / Grove Vision AI tools, if modifying the external vision pipeline
+- Python, if using the companion UI or command-generation scripts
+
+---
+
+## Repository Structure
+
+```text
 ECE3073-Project2025-Lab02-Group4/
-│-- M1/              # Contains VGA controller skeleton
-│-- M2/              # Skeleton files for image convolution and SPI-Gyro communication skeleton
-|-- project/         # Main project file, currently for M1
-│-- .gitignore       # Git ignore file to be used with your Quartus project
-│-- README.md        # Documentation and/or instructions
-
+│-- M1/              # Milestone 1: hardware bring-up, VGA, basic I/O, SPI/accelerometer tests
+│-- M2/              # Milestone 2: vision integration, image/SDRAM path, SPI/gyro work
+│-- project/         # Main integrated Quartus/Nios project files
+│-- assets/          # README screenshots and hardware photos
+│-- .gitignore       # Ignore rules for generated Quartus/Nios build files
+│-- README.md        # Project documentation
 ```
+
+Expected image files:
+
+```text
+assets/
+│-- 3DprintedMount.jpeg
+│-- BattleShip_Menu.jpeg
+│-- BirdEyeView_Setup.jpeg
+│-- DrawPixel_Menu.jpeg
+│-- IsometricView_Setup.jpeg
+│-- MainMenu.jpeg
+│-- SnakeGame_Menu.jpeg
+```
+
+---
+
 ## Getting Started
-# What You'll Need:
-1. A DE10-Lite board with cable
-2. Breadboard
-3. Groove AI Vision 2
-4. 5MP OV5647 Camera Module for Raspberry Pi with camera ribbon
-5. Crow-tail speaker
-6. LED Module
 
-# Ensure you have the software downloaded as well
-1. Nios II Software Build Tools for Eclipse [Instruction Guide here](https://www.terasic.com.tw/wiki/Getting_Start_Install_Eclipse_IDE_into_Nios_EDS)
-2. Quartus Programmer Prime Lite [Installation Here](https://www.intel.com/content/www/us/en/collections/products/fpga/software/downloads.html)
+Clone this repository:
 
-## Steps to operate the device
-# Software
-1. Clone the repository:
-   ```sh
-   git clone https://github.com/ece3073-monash/project-templates.git
-   ```
-2. Copy files .gitignore and template files in your project directory.
-3. M1 and M2 are template files, the current Milestone is updated and stashed on their respective files after demo under 'project' file. A new project file is created after each demo.
+```sh
+git clone https://github.com/xcore11/ECE3073-Project2025-Lab02-Group4.git
+cd ECE3073-Project2025-Lab02-Group4
+```
 
-# Hardware
-1. Follow the pinout connection as shown below:
-   ![Wiring Diagram](https://i.imgur.com/L8OQDLU.png)
-2. Ensure the VGA connector is connected to a monitor.
+Open the project in the Intel FPGA toolchain:
 
-## What is Expected
-# Milestone 1
-1. SW0 - Controls HEX display
-2. SW1 - Displays the captured sentence, in this case a dummy sentence is hardcoded into the switch.
-3. SW2 - Displays the CPU usage percentage, in this case a dummy sentence is hardcoded into the switch.
-4. SW3 - The buzzer is activated, in this case a dummy noise with a specific frequency is hardcoded into the switch.
-5. KEY1 - Displays the captured image into the monitor, in this case a dummy image is coded into the button.
-6. Traffic LEDs - Operates as according to the sentence, in this case dummy instructions is provided to the LED.
-7. Accelerometer - Measures the tilt axis of the FPGA board.
-8. Speaker - Paired with SW3 to emit noise.
-9. HEX Display - Display message (1st to 4th display) and CPU usage (5th and 6th display).
-10. SPI - Exchange message between ESP32 board and the FPGA board.
-
-# Milestone 2
-1. Groove AI V2 Module - Converts camera input to digital data, which proceeds to transmit to the FPGA system.
-2. Camera - Able to capture camera input to be sent to the Module.
-3. De10-Lite Board - Able to perform multi-processor architecture.
-4. SW1 - Displays captured sentence from Groove AI V2 Module.
-5. SW2 - Displays the CPU usage percentage, in this case a dummy sentence is hardcoded into the switch.
-6. Accelerometer - Measures tilt angle, paired with the VGA to show on board movement. Also able to detect if the board is over tilted (emergency stop).
-7. VGA - 1) Displays text / image from the Groove AI V2 Module 2) Display board tilt movement
-8. KEY1 - Captures the image, wait until it receives an image.
-9. KEY0 - Displays the image captured.
-
-# Milestone 3
-# DE10-Lite Triple-Core AI Snake
-
-## a) Key Features (Full Integration)
-
-### Core Architecture & Processing
-* **Altera DE10-Lite FPGA:** The heart of the system, running a custom triple-core Nios II processor architecture (Control, Image, and VGA cores) to handle parallel processing.
-* **Real-Time Operating System (RTOS):** Implemented on the Control processor to efficiently manage hardware states, audio queues, and background tasks.
-
-### Hardware & Peripherals
-* **Grove Vision AI V2 & Camera Module:** Captures real-world, live-drawn maps and processes them via AI to generate dynamic in-game obstacles.
-* **On-board Accelerometer:** Measures tilt angles to provide a physical, motion-based steering mechanism for the game.
-* **VGA Output:** Renders the 8-bit game interface, live camera feeds, and UI elements to an external monitor at 60 FPS.
-
-### Immersive Audio/Visual Feedback
-* **Custom Sound Engine (Buzzer):** Plays retro-arcade 8-bit sound effects using direct hardware PWM (e.g., Apple eating chirps, Game Over fanfares).
-* **LED Traffic Lights & HEX Displays:** Provides real-time physical feedback, including a cascading Red/Yellow/Green "Game Over" sequence and live CPU load monitoring on the 5th and 6th HEX displays.
-
-### User Controls (Switches & Keys)
-* **SW2:** Toggles the CPU load display on the HEX modules.
-* **SW4:** Triggers the main game interface.
-* **SW5 to SW8:** Toggles various internal game functions and debug states.
-* **SW9:** Master switch to return to the Main Menu.
-* **KEY0 & KEY1:** Primary physical push-buttons for discrete game actions.
+1. Open the relevant Quartus project under `project/` or the milestone folder being tested.
+2. Regenerate/update the Nios II system if the Platform Designer configuration changed.
+3. Compile the Quartus design.
+4. Program the DE10-Lite FPGA.
+5. Open the Nios II software workspace in Eclipse.
+6. Build and run the software for each required Nios II processor.
+7. Connect the VGA monitor, Grove Vision AI V2, camera, ESP32-C3, speaker, LEDs, switches, and accelerometer path.
 
 ---
 
-## b) Summarised Game Functions
+## Controls and Outputs
 
-* **Classic Snake Mechanics:** Navigate the grid, eat apples to increase your score and length, and avoid colliding with walls or your own tail.
-* **Live Map Generation:** Draw a maze or obstacles on a physical piece of paper, show it to the camera, and watch the hardware translate it into playable in-game walls.
-* **Motion Control Steering:** Tilt the physical DE10-Lite board up, down, left, or right to steer the snake using real-time accelerometer data.
-* **Arcade Hardware Integration:** Every in-game action is tied to physical hardware. Eating an apple flashes the green LED and plays a chirp; hitting a wall locks the board into a flashing red-light "Game Over" state with a dramatic audio fanfare.
-
-## Roadmap
-### Milestone 1: VGA Controller
-- [x] Initial NIOS II Hardware Setup (WC)
-   - [x] Delegation of tasks is completed
-- [x] Switches & HEX dispay completed (SEAN)
-- [x] VGA & Speaker Completed (LX)
-- [x] SPI Trial & Accelerometer Completed (WC)
-- [x] System Integration
-   - [x] Meeting #1 at 20/4/2026
-      - [x] Integration of Speaker and LED Module (SEAN)
-      - [x] Attempt at 2 processor VGA (LX)
-      - [x] Integration of SPI (WC)
-- [x] System Integration successful and Tried on Meeting #2 22/4/2026
+| Input / Output | Function |
+|---|---|
+| `SW1` | Enables or disables the HEX display path. |
+| `SW2` | Enables captured OCR/text rendering or text-processing mode. |
+| `SW3` | Displays CPU utilisation/performance information on the HEX display. |
+| `SW4` | Enables or disables the speaker/audio path. |
+| `KEY0` | Menu confirmation, retry, image display, or game-specific action. |
+| `KEY1` | Camera capture, snapshot trigger, or game-specific action. |
+| **Accelerometer** | Tilt-based movement, cursor control, orientation detection, or emergency-stop behaviour. |
+| **VGA** | Displays menus, rendered games, captured images, text, and overlays. |
+| **HEX displays** | Shows status, messages, scores, or CPU load values. |
+| **LEDs / traffic light module** | Visual feedback linked to text commands, game events, or state changes. |
+| **Speaker / buzzer** | Audio feedback and frequency-based event signalling. |
 
 ---
 
-### Milestone 2: Image Convolution & SPI-Gyro
-- [x] Updated NIOS II Hardware Setup (WC)
-   - [x] Delegation of tasks is completed
-- [x] Switches & Pushbutton interrupt completed (SEAN)
-- [x] VGA connection to Accelerometer completed (LX)
-- [x] Training of AI model and storing image to SDRAM completed (WC)
-- [x] System Integration & Progress Checkup
-   - [x] Meeting #3 at 4/5/2026
-      - [x] Inclusion of GPIO toggling for latency measurement (SEAN)
-      - [x] VGA display formatting (LX)
-      - [x] Further training of the AI model for reliability (WC)
-- [x] System Integration
-   - [x] Meeting #4 at 5/5/2026
-      - [x] Integration testing of control core & image core (SEAN + WC)
-      - [x] VGA display is able to show SDRAM image (LX)
-      - [x] Further updates to the NIOS II Hardware (WC)
-- [x] System Integration successful and Tried on Meeting #5 6/5/2026
+## Application Modes
+
+### Classic Snake
+
+A VGA-rendered Snake workload controlled using accelerometer tilt. It stresses real-time input handling, graphics refresh, score/state updates, LED feedback, and audio output.
+
+### Battleship
+
+A grid-based targeting workload using accelerometer-driven cursor movement. It validates VGA grid rendering, user interaction, control-state updates, and event feedback.
+
+### Draw Pixel
+
+A pixel-canvas workload that demonstrates image-backed rendering and fine-grained VGA updates. Camera snapshots can be used as a background/reference layer for interaction.
 
 ---
 
-### Milestone 3: System Integration
-- [x] Delegation of tasks is completed
-- [x] Gameplay (Ships and Snakes) (WC)
-   - [x] Implementation of Sound Effects and Game Effects (LX)
-- [x] Implementation of RTOS for the Control Core (SEAN)
+## Milestone Development Path
+
+| Milestone | Focus | Outcome |
+|---|---|---|
+| **M1: Hardware Bring-Up** | Nios II setup, VGA, switches, push buttons, HEX, LEDs, speaker, SPI/UART, SDRAM, accelerometer. | Baseline FPGA peripherals compiled, programmed, and controlled. |
+| **M2: Vision + Multicore Expansion** | Grove Vision AI V2 data path, SPI/ESP32 transfer, additional Nios II processor, interrupts, VGA output, accelerometer control, latency timing. | Vision data influences FPGA outputs and processing is distributed across cores. |
+| **M3: RTOS + Full Integration** | RTOS scheduling, full multicore coordination, stable VGA demos, multimodal output, optimisation, final demonstration. | Complete hardware-software co-designed system with interactive workloads. |
 
 ---
 
-### Final Deliverables
+## Final Outcome
 
+The final system demonstrates a compact embedded vision SoC prototype on FPGA. It combines heterogeneous edge-AI processing, multiple Nios II soft-core processors, shared memory, serial communication, real-time scheduling, VGA graphics, sensor input, and physical I/O feedback into one integrated DE10-Lite platform.
 
-## Contributing
+The game modes are used as visible demonstration workloads, while the main engineering contribution is the **hardware-software partitioning and multicore FPGA architecture** behind them.
 
-The following contributors are involved in this project:
+---
 
-| Name            | Student ID | Email                          |
-|-----------------|-----------|--------------------------------|
-| Chin Wei Chun   | 33520569  | wchi0051@student.monash.edu    |
-| Sean Loh Kim Fook | 34640509  | sloh0020@student.monash.edu    |
-| Ooi Li Xiang    | 33070040  | looi0005@student.monash.edu    |
+## Contributors
+
+| Name | Student ID | Email |
+|---|---:|---|
+| Chin Wei Chun | 33520569 | wchi0051@student.monash.edu |
+| Sean Loh Kim Fook | 34640509 | sloh0020@student.monash.edu |
+| Ooi Li Xiang | 33070040 | looi0005@student.monash.edu |
+
+---
 
 ## License
-Copyright © 2026 Copyright, Monash University
 
-
-
-
-
+Copyright © 2026 Monash University.
